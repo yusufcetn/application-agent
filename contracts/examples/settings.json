@@ -1,0 +1,21 @@
+{
+  "target_roles": ["Backend Developer", "Python Developer"],
+  "locations": ["İstanbul", "Remote"],
+  "remote_only": false,
+  "seniority": ["junior", "mid"],
+  "keywords_exclude": ["Senior Staff", "Principal"],
+  "min_score": 70,
+  "auto_package": true,
+  "cv_language": "auto",
+  "sources": {
+    "greenhouse": ["ornekfirma", "digerfirma"],
+    "lever": ["ornekfirma"],
+    "ashby": [],
+    "remoteok": true,
+    "remotive": true,
+    "arbeitnow": true,
+    "adzuna": false,
+    "email_alerts": false
+  },
+  "schedule_cron": "0 8 * * *"
+}

@@ -1,0 +1,19 @@
+{
+  "id": "job_1",
+  "source": "lever",
+  "url": "https://jobs.lever.co/ornekfirma/123",
+  "company": "Örnek Firma",
+  "title": "Backend Engineer",
+  "location": "Remote (EMEA)",
+  "remote": true,
+  "seniority": "mid",
+  "posted_at": "2026-09-20T00:00:00Z",
+  "found_at": "2026-09-22T06:00:00Z",
+  "description": "Python ve FastAPI ile mikroservisler geliştirecek...",
+  "score": 82,
+  "score_reason": "Python/FastAPI deneyimi ve API projeleri güçlü eşleşiyor, Kubernetes eksik.",
+  "status": "new",
+  "package_status": "ready",
+  "package_error": null,
+  "notes": ""
+}

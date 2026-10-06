@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8">
+<title>{{ p.full_name }} - CV</title>
+<style>
+  @page { size: A4; margin: 16mm 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Helvetica Neue", Arial, "Segoe UI", sans-serif; font-size: 10pt;
+         line-height: 1.4; color: #1a1a1a; margin: 0; }
+  h1 { font-size: 20pt; margin: 0; letter-spacing: 0.2pt; }
+  .headline { font-size: 11pt; color: #444; margin-top: 2pt; }
+  .contact { margin-top: 5pt; color: #333; font-size: 9pt; }
+  .contact span + span::before { content: " · "; color: #999; }
+  a { color: inherit; text-decoration: none; }
+  h2 { font-size: 10.5pt; text-transform: uppercase; letter-spacing: 0.8pt; color: #1f3a93;
+       border-bottom: 0.8pt solid #c9d1e8; padding-bottom: 2pt; margin: 13pt 0 6pt; }
+  .item { margin-bottom: 7pt; page-break-inside: avoid; }
+  .row { display: flex; justify-content: space-between; gap: 8pt; }
+  .title { font-weight: 600; }
+  .muted { color: #555; }
+  .date { color: #555; white-space: nowrap; font-size: 9pt; }
+  ul { margin: 2pt 0 0; padding-left: 13pt; }
+  li { margin-bottom: 1.5pt; }
+  p { margin: 0; }
+  .skills { margin: 0; }
+</style>
+</head>
+<body>
+  <h1>{{ p.full_name }}</h1>
+  {% if cv.headline %}<div class="headline">{{ cv.headline }}</div>{% endif %}
+  <div class="contact">
+    {% if p.location %}<span>{{ p.location }}</span>{% endif %}
+    {% if p.email %}<span><a href="mailto:{{ p.email }}">{{ p.email }}</a></span>{% endif %}
+    {% if p.phone %}<span>{{ p.phone }}</span>{% endif %}
+    {% for link in p.links %}<span><a href="{{ link.url }}">{{ link.url | display_url }}</a></span>{% endfor %}
+  </div>
+
+  {% if cv.summary %}
+  <h2>{{ t.summary }}</h2>
+  <p>{{ cv.summary }}</p>
+  {% endif %}
+
+  {% if experience %}
+  <h2>{{ t.experience }}</h2>
+  {% for e in experience %}
+  <div class="item">
+    <div class="row">
+      <div><span class="title">{{ e.title }}</span> <span class="muted">· {{ e.company }}{% if e.location %}, {{ e.location }}{% endif %}</span></div>
+      <div class="date">{{ e.start_date | fmt_date }} – {{ e.end_date | fmt_date(t.present) }}</div>
+    </div>
+    <ul>{% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if projects %}
+  <h2>{{ t.projects }}</h2>
+  {% for pr in projects %}
+  <div class="item">
+    <div class="row">
+      <div><span class="title">{{ pr.name }}</span>{% if pr.tech %} <span class="muted">· {{ pr.tech | join(", ") }}</span>{% endif %}</div>
+      {% if pr.links %}<div class="date"><a href="{{ pr.links[0].url }}">{{ pr.links[0].url | display_url }}</a></div>{% endif %}
+    </div>
+    <ul>{% for b in pr.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if cv.skills %}
+  <h2>{{ t.skills }}</h2>
+  <p class="skills">{{ cv.skills | join(" · ") }}</p>
+  {% endif %}
+
+  {% if education %}
+  <h2>{{ t.education }}</h2>
+  {% for ed in education %}
+  <div class="item">
+    <div class="row">
+      <div><span class="title">{{ ed.school }}</span>{% if ed.degree or ed.field %} <span class="muted">· {{ [ed.degree, ed.field] | select | join(", ") }}</span>{% endif %}{% if ed.gpa %} <span class="muted">· {{ t.gpa }} {{ ed.gpa }}</span>{% endif %}</div>
+      <div class="date">{{ ed.start_date | fmt_date }} – {{ ed.end_date | fmt_date(t.present) }}</div>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if p.certifications %}
+  <h2>{{ t.certifications }}</h2>
+  <ul>{% for c in p.certifications %}<li>{{ c.name }}{% if c.issuer %} · <span class="muted">{{ c.issuer }}</span>{% endif %}{% if c.date %} <span class="date">({{ c.date | fmt_date }})</span>{% endif %}</li>{% endfor %}</ul>
+  {% endif %}
+
+  {% if languages %}
+  <h2>{{ t.languages }}</h2>
+  <p>{{ languages | join(" · ") }}</p>
+  {% endif %}
+</body>
+</html>

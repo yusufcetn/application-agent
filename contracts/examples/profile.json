@@ -1,0 +1,51 @@
+{
+  "full_name": "Ad Soyad",
+  "headline": "Backend Developer",
+  "email": "ornek@example.com",
+  "phone": "+90 555 000 00 00",
+  "location": "İstanbul, Türkiye",
+  "links": [
+    { "label": "GitHub", "url": "https://github.com/kullanici" },
+    { "label": "LinkedIn", "url": "https://linkedin.com/in/kullanici" }
+  ],
+  "summary": "Python ve FastAPI ile ölçeklenebilir servisler geliştiren backend geliştirici.",
+  "experience": [
+    {
+      "id": "exp_1",
+      "company": "Örnek Teknoloji A.Ş.",
+      "title": "Backend Developer",
+      "location": "İstanbul",
+      "start_date": "2024-02",
+      "end_date": null,
+      "bullets": [
+        "Sipariş servisini FastAPI ile yeniden yazarak yanıt süresini %40 düşürdüm.",
+        "PostgreSQL sorgu optimizasyonu ile raporlama süresini 3 dakikadan 20 saniyeye indirdim."
+      ],
+      "skills": ["Python", "FastAPI", "PostgreSQL", "Docker"]
+    }
+  ],
+  "education": [
+    {
+      "id": "edu_1",
+      "school": "Örnek Üniversitesi",
+      "degree": "Lisans",
+      "field": "Bilgisayar Mühendisliği",
+      "start_date": "2019-09",
+      "end_date": "2023-06",
+      "gpa": "3.21/4.00"
+    }
+  ],
+  "skills": {
+    "languages": ["Python", "TypeScript", "SQL"],
+    "frameworks": ["FastAPI", "React"],
+    "tools": ["Docker", "Git", "AWS"]
+  },
+  "languages": [
+    { "name": "Türkçe", "level": "Ana dil" },
+    { "name": "İngilizce", "level": "C1" }
+  ],
+  "certifications": [
+    { "name": "AWS Cloud Practitioner", "issuer": "Amazon", "date": "2024-05" }
+  ],
+  "updated_at": "2026-09-22T10:00:00Z"
+}

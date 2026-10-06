@@ -1,0 +1,32 @@
+# Secrets
+.env
+.env.*
+!.env.example
+!frontend/.env.development
+
+# Personal data & generated output
+data/
+profile/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+.npm-cache/
+*.tsbuildinfo
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Demo data from backend/scripts/seed_demo.py
+data-demo/
+
+# Personal exports (profile/ is ignored above)
+profile*.zip

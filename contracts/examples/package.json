@@ -1,0 +1,27 @@
+{
+  "job_id": "job_1",
+  "generated_at": "2026-09-22T06:05:00Z",
+  "cv_pdf_url": "/api/jobs/job_1/cv.pdf",
+  "cv_language": "en",
+  "cover_letter": "Dear Hiring Team,\n\n...",
+  "answers": [
+    {
+      "question": "Why do you want to work at Örnek Firma?",
+      "answer": "..."
+    },
+    {
+      "question": "Describe a project relevant to this role.",
+      "answer": "..."
+    }
+  ],
+  "analysis": {
+    "score": 82,
+    "matched_skills": ["Python", "FastAPI", "PostgreSQL", "Docker"],
+    "missing_skills": ["Kubernetes"],
+    "highlighted_projects": ["prj_1"],
+    "highlighted_experience": ["exp_1"],
+    "tips": [
+      "Mülakatta Kubernetes eksikliğini Docker deneyiminle dengeleyebilirsin."
+    ]
+  }
+}

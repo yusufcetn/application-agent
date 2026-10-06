@@ -1,0 +1,15 @@
+{
+  "id": "prj_1",
+  "name": "Application Agent",
+  "role": "Backend & LLM",
+  "summary": "İş ilanlarını bulan ve her ilana özel CV ile başvuru paketi hazırlayan sistem.",
+  "bullets": [
+    "Greenhouse, Lever ve remote iş sitelerinden günlük ilan toplayan tarayıcı yazdım.",
+    "Claude API ile ilan-profil uyum puanlaması ve CV uyarlaması geliştirdim."
+  ],
+  "tech": ["Python", "FastAPI", "Claude API", "React"],
+  "links": [{ "label": "GitHub", "url": "https://github.com/kullanici/application-agent" }],
+  "start_date": "2026-09",
+  "end_date": null,
+  "featured": true
+}
