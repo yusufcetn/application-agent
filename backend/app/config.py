@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     web_search_max_results: int = 15
     # None = LLM_MODEL. A faster model keeps the many search/read turns short.
     web_search_model: str | None = None
+    # Model for copying a CV, an alert email or a job page into fields. None =
+    # gemini-3.8-flash-low for antigravity, LLM_MODEL otherwise: the high model thinks for
+    # minutes over a plain transcription.
+    extract_model: str | None = None
     llm_max_concurrency: int = 2
     search_max_age_days: int = 30
     search_max_scored_per_run: int = 40

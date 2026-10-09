@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.llm.runner import run_structured
+from app.llm.runner import extract_model, run_structured
 from app.schemas import Seniority
 
 SYSTEM_PROMPT = """\
@@ -42,4 +42,5 @@ def extract_job(page_text: str, url: str) -> ExtractedJob:
         SYSTEM_PROMPT,
         f"URL: {url}\n\n<page>\n{page_text}\n</page>\n\nExtract the job posting.",
         ExtractedJob,
+        model=extract_model(),
     )

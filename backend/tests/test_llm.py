@@ -111,8 +111,18 @@ def test_import_via_antigravity_cli(client, monkeypatch):
     assert "Çağlayan" in message["message"]["content"]
     cmd = calls[0]["cmd"]
     assert cmd[cmd.index("--input-format") + 1] == "stream-json"
-    assert cmd[cmd.index("--model") + 1] == "gemini-3.8-flash-medium"
+    assert cmd[cmd.index("--model") + 1] == "gemini-3.8-flash-low"  # a plain transcription
     assert res.json()["full_name"] == "Ali Veli"
+
+
+def test_extract_model_falls_back_to_llm_model_outside_antigravity(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "claude")
+    config.get_settings.cache_clear()
+    assert runner.extract_model() is None
+    monkeypatch.setenv("EXTRACT_MODEL", "haiku")
+    config.get_settings.cache_clear()
+    assert runner.extract_model() == "haiku"
+    config.get_settings.cache_clear()  # drop the overrides for later tests
 
 
 def test_antigravity_error_returns_502(client, monkeypatch):
@@ -177,6 +187,26 @@ def test_antigravity_asks_again_when_a_denied_tool_ended_the_turn(monkeypatch):
     assert runner.run_structured("s", "p", Profile).full_name == "Ali Veli"
     assert len(calls) == 2
     assert "tried a tool that isn't available" in json.loads(calls[1])["message"]["content"]
+
+
+def test_antigravity_answer_written_as_prose_is_used(monkeypatch):
+    from app.llm.alert_extract import AlertJobs
+
+    # What gemini-3.8-flash-low did with a LinkedIn alert: the jobs as a bare list in its
+    # text, then an empty structured output.
+    response = (
+        '```json\n[{"url": "L8", "title": "Game Developer", "company": "Vertigo Games", '
+        '"location": null, "snippet": null}]\n```\n{"jobs":[],"toolAction":"Completing task"}\n'
+    )
+    out = _agy_result({"status": "SUCCESS", "response": response, "structured_output": {"jobs": []}})
+    _fake_cli(monkeypatch, "antigravity", lambda cmd: (0, out))
+    [job] = runner.run_structured("s", "p", AlertJobs).jobs
+    assert (job.url, job.company) == ("L8", "Vertigo Games")
+
+    # An empty answer with nothing in the text stays empty.
+    out = _agy_result({"status": "SUCCESS", "response": "Hiç ilan yok.", "structured_output": {"jobs": []}})
+    _fake_cli(monkeypatch, "antigravity", lambda cmd: (0, out))
+    assert runner.run_structured("s", "p", AlertJobs).jobs == []
 
 
 def test_antigravity_explains_an_empty_answer(monkeypatch):

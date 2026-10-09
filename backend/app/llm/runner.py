@@ -21,9 +21,18 @@ from app.config import get_settings
 T = TypeVar("T", bound=BaseModel)
 
 ANTIGRAVITY_DEFAULT_MODEL = "gemini-3.8-flash-medium"
+ANTIGRAVITY_EXTRACT_MODEL = "gemini-3.8-flash-low"
 
 # CLI subscriptions have usage limits; don't let a batch of packages fire all at once.
 _slots = threading.BoundedSemaphore(get_settings().llm_max_concurrency)
+
+
+def extract_model() -> str | None:
+    """The model for calls that only copy text into fields (see EXTRACT_MODEL)."""
+    settings = get_settings()
+    if settings.extract_model:
+        return settings.extract_model
+    return ANTIGRAVITY_EXTRACT_MODEL if settings.llm_provider == "antigravity" else None
 
 
 class LLMError(RuntimeError):
@@ -218,6 +227,34 @@ _ANSWER_IN_JSON = (
 )
 
 
+_CODE_BLOCK = re.compile(r"```(?:json)?[ \t]*\n(.*?)```", re.S)
+
+
+def _is_empty(value) -> bool:
+    if isinstance(value, dict):
+        return all(_is_empty(v) for v in value.values())
+    return value is None or value == "" or value == []
+
+
+def _answer_in_prose(response: str, schema: dict) -> dict | None:
+    """Despite _ANSWER_IN_JSON, Gemini still now and then writes the answer as a JSON block
+    in its text (a bare list where the schema wants {"jobs": [...]}) and then returns empty
+    fields. Take the answer from that block."""
+    fields = schema.get("properties", {})
+    for block in reversed(_CODE_BLOCK.findall(response)):
+        try:
+            data = json.loads(block)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, list) and len(fields) == 1:
+            [(name, field)] = fields.items()
+            if field.get("type") == "array":
+                data = {name: data}
+        if isinstance(data, dict) and data.keys() <= fields.keys() and not _is_empty(data):
+            return data
+    return None
+
+
 def _antigravity_result(stdout: str) -> dict | None:
     result = None
     for line in stdout.splitlines():
@@ -251,10 +288,12 @@ def _run_antigravity(system: str, prompt: str, schema: dict, workdir: str, web: 
         result = _antigravity_result(proc.stdout)
         if result is None:
             raise LLMError(f"Antigravity CLI hatası: {(proc.stderr or proc.stdout)[-500:]}")
-        # A retried model error can still end with an answer.
-        if result.get("structured_output") is not None:
-            return result["structured_output"]
         response = result.get("response") or ""
+        # A retried model error can still end with an answer.
+        if (structured := result.get("structured_output")) is not None:
+            if _is_empty(structured):
+                return _answer_in_prose(response, schema) or structured
+            return structured
         if result.get("status") == "SUCCESS" and response.strip():
             return _parse_json_text(response)
         # A denied tool ends the turn without an answer; stderr says which one.

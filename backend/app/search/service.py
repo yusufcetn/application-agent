@@ -81,6 +81,7 @@ def _fetch(sources: list, settings) -> tuple[list[RawJob], list[str], set[str]]:
             logger.info("%s: %d postings", source.name, len(found))
             jobs += found
             read.add(source.name)
+            errors += [f"{source.name}: {e}" for e in source.errors]
         except Exception as e:  # one broken source shouldn't stop the run
             logger.warning("Source %s failed: %s", source.name, e)
             errors.append(f"{source.name}: {e}")

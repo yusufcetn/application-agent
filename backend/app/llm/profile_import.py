@@ -5,7 +5,7 @@ import io
 from docx import Document
 from pypdf import PdfReader
 
-from app.llm.runner import run_structured
+from app.llm.runner import extract_model, run_structured
 from app.schemas import Profile
 
 SYSTEM_PROMPT = """\
@@ -65,4 +65,5 @@ def extract_profile(content: bytes, filename: str) -> Profile:
         f"<cv>\n{text}\n</cv>\n\nExtract the profile from this CV.",
         Profile,
         drop={"id", "updated_at"},
+        model=extract_model(),
     )
