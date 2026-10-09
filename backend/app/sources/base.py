@@ -32,6 +32,8 @@ class JobSource(ABC):
 
     def __init__(self, client: httpx.Client):
         self.client = client
+        # Problems that didn't stop the source; the run reports them next to its postings.
+        self.errors: list[str] = []
 
     @abstractmethod
     def fetch(self, settings: SearchSettings) -> list[RawJob]: ...

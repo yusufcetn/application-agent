@@ -6,6 +6,7 @@ import pytest
 from app import config
 from app.jobs.urls import normalize_url
 from app.llm.alert_extract import AlertJob
+from app.llm.runner import LLMError
 from app.schemas import SearchSettings
 from app.sources import email_alerts
 from app.sources.base import make_client
@@ -69,12 +70,33 @@ def test_linkedin_urls_are_normalized():
     )
 
 
-def test_email_to_text_keeps_links_and_drops_styles():
-    text = email_to_text(make_email("<a@x>"))
+def test_email_to_text_swaps_links_for_ids_and_drops_styles():
+    text, links = email_to_text(make_email("<a@x>"))
     assert "Subject: “backend developer”" in text
-    assert "Backend Developer [https://www.linkedin.com/comm/jobs/view/4012345678/?trackingId=abc&refId=x]" in text
+    assert "Backend Developer [L1]" in text and "See all jobs [L2]" in text
+    assert links["L1"] == "https://www.linkedin.com/comm/jobs/view/4012345678/?trackingId=abc&refId=x"
+    assert "trackingId" not in text
     assert "Örnek Firma · İstanbul (Hybrid)" in text
     assert ".x{}" not in text
+
+
+def test_the_same_link_twice_gets_one_id():
+    html = '<a href="https://x.com/job/1">Logo</a><a href="https://x.com/job/1">Backend</a>'
+    text, links = email_to_text(make_email("<a@x>", html))
+    assert "Logo [L1]" in text and "Backend [L1]" in text and links == {"L1": "https://x.com/job/1"}
+
+
+def test_alert_jobs_get_their_urls_back(monkeypatch):
+    from app.llm import alert_extract
+    from app.llm.alert_extract import AlertJobs
+
+    monkeypatch.setattr(alert_extract, "run_structured", lambda *a, **k: AlertJobs(jobs=[
+        AlertJob(title="Backend", company="A", url="L1"),
+        AlertJob(title="Frontend", company="B", url="[L2]"),
+        AlertJob(title="Invented", company="C", url="L9"),
+    ]))
+    jobs = alert_extract.extract_alert_jobs("...", {"L1": "https://x.com/1", "L2": "https://x.com/2"})
+    assert [(j.title, j.url) for j in jobs] == [("Backend", "https://x.com/1"), ("Frontend", "https://x.com/2")]
 
 
 @pytest.fixture
@@ -86,8 +108,10 @@ def imap(client, monkeypatch):
     monkeypatch.setattr(email_alerts.imaplib, "IMAP4_SSL", FakeIMAP)
     calls = []
 
-    def fake_extract(text):
+    def fake_extract(text, links):
         calls.append(text)
+        if "fail" in text:
+            raise LLMError("LLM yanıtı zaman aşımına uğradı.")
         return [AlertJob(title="Backend Developer", company="Örnek Firma", location="İstanbul (Hybrid)",
                          url="https://www.linkedin.com/comm/jobs/view/4012345678/?trackingId=abc",
                          snippet="Easy Apply")]
@@ -111,6 +135,17 @@ def test_email_source_extracts_each_email_once_but_returns_its_postings_every_ru
     FakeIMAP.mailbox.append(make_email("<second@linkedin>"))
     assert len(source.fetch(SearchSettings())) == 1
     assert len(imap) == 2
+
+
+def test_an_email_that_fails_does_not_hold_back_the_others(imap):
+    FakeIMAP.mailbox.insert(0, make_email("<fail@linkedin>", ALERT_HTML.replace("<h2>", "<h2>fail ")))
+    source = EmailAlertSource(make_client())
+    [job] = source.fetch(SearchSettings())
+    assert job.url == "https://www.linkedin.com/jobs/view/4012345678"
+    assert len(source.errors) == 1 and "zaman aşımı" in source.errors[0]
+    # The failed one is tried again, the other one isn't; its posting is still returned.
+    assert len(source.fetch(SearchSettings())) == 1
+    assert len(imap) == 3
 
 
 def test_emails_marked_by_older_versions_are_extracted_again(imap):

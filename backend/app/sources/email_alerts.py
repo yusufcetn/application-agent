@@ -7,6 +7,7 @@ later, once, if a package is generated for that job.
 import email
 import imaplib
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from email.policy import default as default_policy
@@ -19,6 +20,7 @@ from app.config import get_settings
 from app.db import AlertEmailRow, AlertPostingRow, get_engine
 from app.jobs.urls import normalize_url
 from app.llm.alert_extract import extract_alert_jobs
+from app.llm.runner import LLMError
 from app.schemas import SearchSettings
 from app.sources.base import JobSource, RawJob, looks_remote
 
@@ -27,10 +29,20 @@ logger = logging.getLogger(__name__)
 MAX_EMAIL_CHARS = 30_000
 MAX_EMAILS_PER_RUN = 20
 FORGET_MARGIN_DAYS = 2
+_URL = re.compile(r"https?://[^\s<>\"')\]]+")
 
 
-def email_to_text(msg: EmailMessage) -> str:
-    """Email body as text, with each link kept as "text [URL]" so the LLM can see it."""
+def email_to_text(msg: EmailMessage) -> tuple[str, dict[str, str]]:
+    """Email body as text, with each link written as "text [L1]", and the URL of each id."""
+    links: dict[str, str] = {}
+    ids: dict[str, str] = {}
+
+    def link_id(url: str) -> str:
+        if url not in ids:
+            ids[url] = f"L{len(ids) + 1}"
+            links[ids[url]] = url
+        return ids[url]
+
     html_part = msg.get_body(preferencelist=("html",))
     if html_part is not None:
         soup = BeautifulSoup(html_part.get_content(), "html.parser")
@@ -38,14 +50,16 @@ def email_to_text(msg: EmailMessage) -> str:
             tag.decompose()
         for a in soup.find_all("a", href=True):
             label = a.get_text(" ", strip=True)
-            a.replace_with(f" {label} [{a['href']}] " if label else f" [{a['href']}] ")
+            ref = link_id(a["href"])
+            a.replace_with(f" {label} [{ref}] " if label else f" [{ref}] ")
         lines = [line.strip() for line in soup.get_text("\n").splitlines()]
         text = "\n".join(line for line in lines if line)
     else:
         plain = msg.get_body(preferencelist=("plain",))
         text = plain.get_content() if plain is not None else ""
+        text = _URL.sub(lambda m: f"[{link_id(m.group(0))}]", text)
     subject = msg.get("Subject", "")
-    return f"Subject: {subject}\n\n{text}"[:MAX_EMAIL_CHARS]
+    return f"Subject: {subject}\n\n{text}"[:MAX_EMAIL_CHARS], links
 
 
 def _message_date(msg: EmailMessage) -> datetime | None:
@@ -66,10 +80,17 @@ class EmailAlertSource(JobSource):
         if not (config.imap_user and config.imap_password):
             raise RuntimeError("IMAP_USER / IMAP_PASSWORD ayarlanmamış (.env).")
 
+        self.errors = []
         with Session(get_engine()) as session:
             self._forget_old(session)
             for msg in self._new_messages(session):
-                self._store_postings(session, msg)
+                # One bad email shouldn't hold back the others. It stays unread, so the next
+                # run tries it again.
+                try:
+                    self._store_postings(session, msg)
+                except LLMError as e:
+                    logger.warning("Could not extract alert email %s: %s", msg["Message-ID"], e)
+                    self.errors.append(f"{msg['Subject'] or msg['Message-ID']}: {e}")
             rows = session.exec(select(AlertPostingRow)).all()
         return [
             RawJob(
@@ -83,7 +104,7 @@ class EmailAlertSource(JobSource):
     def _store_postings(self, session: Session, msg: EmailMessage) -> None:
         msg_id = msg["Message-ID"]
         received = _message_date(msg)
-        jobs = extract_alert_jobs(email_to_text(msg))
+        jobs = extract_alert_jobs(*email_to_text(msg))
         for url, job in {normalize_url(self._resolve(job.url)): job for job in jobs}.items():
             row = session.get(AlertPostingRow, url)
             if row:
