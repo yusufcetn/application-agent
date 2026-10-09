@@ -17,28 +17,56 @@ profile and projects. Never invent employers, titles, dates, metrics, technologi
 degrees or achievements. You may rephrase, reorder, emphasize and trim, and you may \
 use the posting's terminology for things the candidate actually did.
 Do not add context the source doesn't state either: who used something ("non-engineering \
-users", "other teams"), how people worked ("partnered with stakeholders"), scope ("shared \
-infrastructure", "company-wide") or impact beyond what is written. If the posting wants \
-something the candidate's data doesn't show, leave it out of the CV and list it under \
-missing_skills. This applies to the cover letter and answers too.
+users", "other teams"), how people worked ("partnered with stakeholders", "code reviews"), \
+scope ("shared infrastructure", "company-wide", "production-grade") or impact and qualities \
+beyond what is written ("reliability", "scalability", "automated pipelines"). If the \
+posting wants something the candidate's data doesn't show, leave it out of the CV and list \
+it under missing_skills. This applies to the cover letter and answers too.
+Keep the candidate's part in each item as strong as the source says and no stronger: \
+"implemented" does not become "designed" or "architected", "worked on" does not become \
+"built" or "led", and a team effort stays a team effort.
+Keep the concrete details: product, platform and library names (an ERP product, an API \
+provider, a standard), document and feature types, team sizes and numbers. Translate them \
+where they have a standard translation ("e-Fatura" -> "e-Invoice"), but never replace a \
+specific name with a vague phrase ("Odoo ORM" is not "an ORM", "JWT auth with refresh \
+tokens" is not "core features"), even when that technology is unrelated to the posting.
+
+Language: the requested CV language, or for "auto" the posting's language (tr or en). \
+Everything you write for the CV, the cover letter and the answers is entirely in that \
+language, including project names, school, degree and field names, job titles and \
+language levels. The candidate's data is often in another language: translate it. Only \
+company names, personal names, product and technology names and course codes (e.g. \
+"CSE3063") stay as they are.
 
 CV:
-- language: the CV language. Follow the requested CV language; for "auto", use the \
-posting's language (tr or en).
-- headline and summary: aimed at this role, 2-4 sentences for the summary.
+- headline and summary: aimed at this role, 2-4 sentences for the summary. The headline \
+is the candidate's professional title (e.g. "Software Engineer"), not a copy of the \
+posting's title with its qualifiers ("(New Grad)", "Intern", a team name). Claim \
+professional experience only for what the work experience shows; skills that come only \
+from personal or course projects are presented as project work ("built a Unity game in \
+C#"), not as proficiency or professional experience ("proficient in game development").
 - experience: include every experience entry from the profile, referenced by its id, \
 most relevant first. title is the job title translated into the CV language (same \
-meaning and level; keep it as is if already in that language). Rewrite each entry's bullets (2-5 each) to highlight what matters \
-for this role; start bullets with strong verbs; keep real numbers only.
-- projects: pick the 2-4 projects most relevant to the posting, by id, most relevant \
-first, with 2-3 rewritten bullets each.
-- education: every education entry by id, with degree and field translated into the CV \
-language.
+meaning and level; keep it as is if already in that language). Rewrite each entry's bullets (2-5 each) to highlight what \
+matters for this role; start bullets with strong verbs; keep real numbers only.
+- projects: pick the 2-3 projects most relevant to the posting, by id, most relevant \
+first. name is the project name in the CV language: translate the descriptive parts and \
+keep proper names ("Nexamind — AI Destekli Sınav Koçu" -> "Nexamind — AI-Powered Exam \
+Coach", "MiniRAG (CSE3063 Grup Projesi)" -> "MiniRAG (CSE3063 Group Project)"). bullets \
+are 2-3 short rewritten sentences (printed as one paragraph) that keep the project's most \
+specific facts.
+- The whole CV must fit on one A4 page: keep every bullet to one or two lines.
+- education: every education entry by id, with school, degree and field in the CV \
+language ("Marmara Üniversitesi" -> "Marmara University", "Lisans" -> "Bachelor's Degree").
 - languages: the candidate's spoken languages with level, in the CV language, e.g. \
 "Turkish (Native)".
-- skills: the candidate's skills most relevant to the posting first. Only skills that \
-appear somewhere in the profile or projects.
-- Translate text into the CV language when needed, without changing facts.
+- skills: about 8-15 of the candidate's skills, most relevant to the posting first, each \
+written exactly as it appears in the profile or projects (nothing else), grouped by what \
+they are: languages = programming, query and shader languages (Python, C#, SQL, HLSL, \
+ShaderLab); frameworks = frameworks, libraries, game engines and SDKs (FastAPI, Unity, \
+Flutter, FAISS); tools = databases, platforms, services, APIs and everything else \
+(PostgreSQL, Docker, Git). Prefer real tools over concepts like "Design Patterns" or \
+"REST API".
 
 Analysis:
 - score: 0-100 fit between the candidate and the posting. 80+ strong fit, 60-79 \
@@ -51,12 +79,19 @@ does not have.
 Application texts, in the CV language:
 - cover_letter: 200-350 words, specific to this company and role, linking the \
 candidate's real experience and projects to the posting's needs. No generic filler, \
-no placeholders like [Company]. Plain text with blank lines between paragraphs.
+no placeholders like [Company]. Plain text with blank lines between paragraphs. Describe \
+projects with the same facts as the CV; don't add what they "taught" or "gave practice \
+in".
 - answers: 3-5 questions this application form is likely to ask (e.g. why this \
 company, a relevant project, a challenge solved, salary or notice period only if the \
-posting hints at it) with ready-to-paste answers in the candidate's voice. Do not \
-make up salary numbers or personal details; if unknown, write the answer as a short \
-template the candidate completes.
+posting hints at it) with ready-to-paste answers in the candidate's voice. Keep counts \
+right (one game project is not "games"). A challenge or conflict story needs a problem \
+and outcome the data actually describes; if there is none, ask a different question \
+instead of inventing one. Do not \
+make up salary numbers, start dates or personal details, and don't accept terms for the \
+candidate: a salary stated in the posting is not the candidate's expectation. If \
+something is unknown, write the answer as a short template with a "___" blank the \
+candidate fills in.
 """
 
 
@@ -69,10 +104,22 @@ class TailoredExperience(TailoredItem):
     title: str
 
 
+class TailoredProject(TailoredItem):
+    # None keeps the name from the candidate's data.
+    name: str | None = None
+
+
 class TailoredEducation(BaseModel):
     id: str
+    school: str | None = None
     degree: str | None = None
     field: str | None = None
+
+
+class TailoredSkills(BaseModel):
+    languages: list[str] = []
+    frameworks: list[str] = []
+    tools: list[str] = []
 
 
 class PackageDraft(BaseModel):
@@ -80,10 +127,10 @@ class PackageDraft(BaseModel):
     headline: str
     summary: str
     experience: list[TailoredExperience]
-    projects: list[TailoredItem]
+    projects: list[TailoredProject]
     education: list[TailoredEducation]
     languages: list[str]
-    skills: list[str]
+    skills: TailoredSkills
     score: int
     score_reason: str
     matched_skills: list[str]
@@ -121,13 +168,14 @@ def _enforce_facts(draft: PackageDraft, profile: Profile, projects: list[Project
 
     known = _known_skills(profile, projects)
     seen: set[str] = set()
-    skills = []
-    for skill in draft.skills:
-        key = skill.casefold()
-        if key in known and key not in seen:
-            seen.add(key)
-            skills.append(known[key])
-    draft.skills = skills
+    for group in ("languages", "frameworks", "tools"):
+        skills = []
+        for skill in getattr(draft.skills, group):
+            key = skill.casefold()
+            if key in known and key not in seen:
+                seen.add(key)
+                skills.append(known[key])
+        setattr(draft.skills, group, skills)
 
 
 def tailor_package(

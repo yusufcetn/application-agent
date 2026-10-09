@@ -36,10 +36,10 @@ Profil ve Ayarlar ekranları nadiren kullanılır, ama ilk kurulumda önemlidir.
 
 - **His:** sakin, profesyonel, verimli. Linear, Notion ve Raycast arası bir his. İş arama stresli bir süreç; arayüz düzenli ve güven veren bir yer olmalı.
 - **Yoğunluk:** orta. Liste ekranları bilgi yoğun (tablo gibi), detay ekranları ferah ve okunabilir.
-- **Renk (güncel yön):** sıcak kâğıt (`#f8f5ef`), kırık beyaz yüzey (`#fffcf7`), koyu mürekkep (`#302c2b`), mürdüm (`#4c343c`) ve ana aksiyon için toprak kırmızısı (`#864b3e`). Puan ve durum renkleri aşağıdaki anlamlarını korur.
-- **Tipografi (güncel yön):** arayüz ve uzun metinlerde DM Sans; önemli başlıklar ve sayısal vurgu için Fraunces. Ön yazı ve cevap metinleri rahat satır aralığıyla okunur.
+- **Renk (güncel yön, "Bulut"):** serin mavi-gri zemin (`#eef3fa`) üstünde ince mavi nokta deseni ve yumuşak renk ışıltıları, hafif saydam beyaz kartlar, lacivert mürekkep (`#0f172a`) ve ana aksiyon için kobalt mavisi (`#2563eb`). Sayfanın üstünde laciverten gök mavisine giden bir gradyan bant (`#1e3a8a → #2563eb → #0ea5e9`) durur. Koyu temada zemin `#070c18`, kartlar `#111a2c`, vurgu `#60a5fa`. Puan ve durum renkleri aşağıdaki anlamlarını korur.
+- **Tipografi (güncel yön):** her yerde Figtree; başlıklar ve sayılar kalın (800). Serif yok. Ön yazı ve cevap metinleri rahat satır aralığıyla okunur.
 - **Tema:** açık tema ana tasarım. Koyu tema da desteklenecek.
-- **Köşeler ve gölgeler:** hafif yuvarlatılmış (8–16px), minimal gölge; bilgi yoğun listelerde ayırıcı çizgiler, odak gerektiren panellerde ince kenarlık kullanılır.
+- **Köşeler ve gölgeler:** kartlar 16px, buton ve alanlar 9px yuvarlatılmış; kartlarda ince kenarlık ve yumuşak gölge, liste satırlarında ayırıcı çizgiler. Uyum puanı dolan bir **halka** olarak gösterilir.
 - **İkonlar:** Lucide ikon seti.
 
 ### Anlamlı renkler
@@ -67,11 +67,13 @@ Profil ve Ayarlar ekranları nadiren kullanılır, ama ilk kurulumda önemlidir.
 
 Masaüstü öncelikli web uygulaması.
 
-- **Sol kenar çubuğu (sabit, ~240px):**
-  - Üstte logo + "Apply Agent"
+- **Sol kenar çubuğu (sabit, ~250px, liquid glass):** kenarlardan boşluklu, yuvarlak köşeli yarı saydam cam panel; mavi bant ve arka plan arkasından bulanık görünür.
+  - Üstte gradyan logo + "Apply Agent"
   - Menü: **Özet**, **İlanlar** (yeni ilan sayısı rozetiyle), **Profil**, **Projeler**, **Ayarlar**
-  - Altta: son tarama zamanı ("Son tarama: bugün 08:00") ve **"Şimdi tara"** butonu
-- **Ana alan:** sayfa başlığı + sağ üstte sayfaya özel aksiyonlar.
+  - Altta: son tarama durumu ("Son tarama: bugün 08:00"), **"Şimdi tara"** butonu, tema düğmesi
+- **Telefonda:** kenar çubuğu gizlenir; bandın üstündeki hamburger düğmesiyle soldan açılan bir çekmece olur.
+- **Üst bant (gradyan):** ana alanın üstünde sayfa başlığını ve sayfaya özel aksiyonları taşır. Özet sayfasında kartlar bandın alt kenarına biner.
+- **Ana alan:** ortalanmış (en fazla ~1180px) kartlar.
 
 ## 5. Ekranlar
 
@@ -106,7 +108,8 @@ Masaüstü öncelikli web uygulaması.
   | **91** | Junior Backend Developer · Insider | Remote | Ashby | Dün | ✓ Hazır | Mülakat |
 
 - Satıra tıklayınca İlan Detayı açılır.
-- Satırın üzerine gelince hızlı aksiyonlar görünür: "Geç", "Başvurdum".
+- Satırın üzerine gelince hızlı aksiyonlar görünür: "Geç", "Başvurdum", **"Sil"** (çöp kutusu).
+- **Silme:** onay sorulur; ilan, paketi ve CV'si silinir, linki taramalarda bir daha gelmez. Paket hazırlanırken silinemez.
 - Varsayılan sıralama puana göre (yüksekten düşüğe).
 
 **"Link ile ilan ekle" modalı:** tek bir URL alanı + "Ekle ve paket hazırla" butonu.
@@ -122,7 +125,7 @@ Masaüstü öncelikli web uygulaması.
 
 **Üst başlık alanı:**
 - Büyük puan rozeti (82), pozisyon adı (büyük), firma · konum · kaynak · "2 gün önce yayınlandı"
-- Sağda: **"İlana git ↗"** (ana buton, yeni sekmede açılır), durum açılır menüsü (Yeni ▾), "Paketi yeniden oluştur" (ikon buton)
+- Sağda: **"İlana git ↗"** (ana buton, yeni sekmede açılır), durum açılır menüsü (Yeni ▾), "Paketi yeniden oluştur" ve "İlanı sil" (ikon butonlar)
 
 **Altında sekmeler:**
 
@@ -211,6 +214,7 @@ Masaüstü öncelikli web uygulaması.
 - **Puan rozeti:** 3 boyut (küçük: listelerde, orta: kartlarda, büyük: detay başlığında). Renkler bölüm 3'teki tabloya göre.
 - **Durum etiketi:** renkli, yumuşak arka planlı çip. Detay sayfasında açılır menü olarak da kullanılır.
 - **Paket göstergesi:** ✓ Hazır / ⟳ Hazırlanıyor (dönen ikon) / — Yok / ! Hata
+- **İlan açıklık rozeti:** "Açık" (yeşil) / "Kapandı" (soluk kırmızı), durum bilinmiyorsa gösterilmez. Kapanan ilanlar listede gizlenir ("Kapananları göster" ile açılır), detayda sebebiyle birlikte uyarı çıkar.
 - **Kopyala butonu:** tıklayınca 2 saniye "Kopyalandı ✓" gösterir.
 - **Yetenek çipi:** nötr, eşleşen (yeşil), eksik (soluk kırmızı) varyantları
 - **Etiket girişi (tag input):** yaz, Enter'a bas, çip olarak eklensin, × ile silinsin
@@ -231,7 +235,7 @@ Her veri ekranı için şu durumlar tasarlanmalı:
 
 - **Ana hedef:** masaüstü (1280–1440px)
 - **Telefon:** ikinci ana hedef. Kullanıcı uygulamayı telefonuna "Ana ekrana ekle" ile kurup gün içinde
-  telefondan kullanacak (bkz. bölüm 11). Kenar çubuğu alt sekme çubuğuna veya hamburger menüye döner,
+  telefondan kullanacak (bkz. bölüm 11). Kenar çubuğu hamburger menüye döner,
   ilan tablosu kart listesine dönüşür. İlan detayı ve kopyala butonları telefonda rahat kullanılmalı:
   en sık akış "bildirimi gör → ilanı aç → ön yazıyı kopyala → ilana git" telefondan yapılacak.
 
@@ -244,7 +248,7 @@ Her veri ekranı için şu durumlar tasarlanmalı:
 
 ## 10. Tasarım teslim listesi
 
-1. Uygulama iskeleti (kenar çubuğu + boş ana alan)
+1. Uygulama iskeleti (kenar çubuğu + üst bant + boş ana alan)
 2. Özet sayfası (dolu + ilk kullanım/boş hali)
 3. İlanlar listesi + "Link ile ilan ekle" modalı
 4. İlan Detayı: 5 sekmenin her biri + "Hazırlanıyor" durumu

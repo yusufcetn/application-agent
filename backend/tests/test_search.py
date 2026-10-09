@@ -7,6 +7,7 @@ import pytest
 from app.llm.score import JobScore
 from app.schemas import SearchSettings, SourceSettings
 from app.search import filters, service
+from app.search.verify import Check
 from app.sources.base import JobSource, RawJob
 from app.sources.company_boards import AshbySource, GreenhouseSource, LeverSource
 from app.sources.job_boards import ArbeitnowSource, RemoteOKSource, RemotiveSource
@@ -63,6 +64,41 @@ def test_location_rules():
 )
 def test_location_matches_across_turkish_and_english_spellings(wanted, job_location):
     assert filters.matches_location(raw(location=job_location), SearchSettings(locations=[wanted]))
+
+
+@pytest.mark.parametrize(
+    "title,role,expected",
+    [
+        # Possessive forms are the generic word, not a specific one.
+        ("Yazılım Stajyeri", "Yazılım Stajyeri", True),
+        ("Muhasebe Stajyeri", "Yazılım Stajyeri", False),
+        ("Uzun Dönem Stajyer - Yazılım", "Uzun Dönem Yazılım Stajyeri", True),
+        ("Uzun Dönem Pazarlama Stajyeri", "Uzun Dönem Yazılım Stajyeri", False),
+        ("Yazılım Mühendisi Stajyeri", "Yazılım Mühendisliği Stajyeri", True),
+        # Work arrangements alone don't match any posting of that kind.
+        ("Software Engineer (Part-Time)", "Part Time Software Engineer", True),
+        ("Part-Time Sales Associate", "Part Time Software Engineer", False),
+        ("Yazılım Mühendisi - Yarı Zamanlı", "Yarı Zamanlı Yazılım Mühendisi", True),
+        ("Yarı Zamanlı Kasiyer", "Yarı Zamanlı Yazılım Mühendisi", False),
+        ("Student Engineer - Embedded Software", "Student Engineer", True),
+        ("Student Ambassador", "Student Engineer", False),
+        ("Aday Mühendis (Yazılım)", "Aday Mühendis", True),
+        ("Aday Satış Temsilcisi", "Aday Mühendis", False),
+        ("Software Engineer Intern", "Software Engineering Intern", True),
+        ("Mechanical Engineering Intern", "Software Engineering Intern", False),
+        # A role with no field word needs a software word in the title.
+        ("Working Student Software Development", "Working Student", True),
+        ("Working Student Marketing", "Working Student", False),
+        ("Backend Stajyer", "Stajyer", True),
+        ("Muhasebe Stajyer", "Stajyer", False),
+        ("Stajyer Yazılım Geliştirici", "Stajyer", True),
+        # A specific word still decides on its own.
+        ("Uzun Dönem Yapay Zeka Stajyeri", "Yapay Zeka Mühendisi", True),
+        ("Data Science Intern", "Data Science Intern", True),
+    ],
+)
+def test_role_qualifiers_and_turkish_forms(title, role, expected):
+    assert filters.matches_role(title, [role]) is expected
 
 
 def test_role_matches_without_turkish_characters():
@@ -132,6 +168,32 @@ def test_lever_joins_description_parts():
     assert job.company == "Acme" and job.remote
     assert job.description == "Intro\n\nRequirements\nPython\n\nBenefits"
     assert job.posted_at.year == 2024
+
+
+def test_company_boards_drop_non_location_values():
+    client = client_returning({
+        "postings/peakgames": [{
+            "hostedUrl": "https://jobs.lever.co/peakgames/1", "text": "Backend Engineer",
+            "categories": {"location": "Full-time"}, "createdAt": 1711403416463,
+        }],
+        "job-board/good-job-games": {"jobs": [{
+            "jobUrl": "https://jobs.ashbyhq.com/good-job-games/1", "title": "Game Developer",
+            "location": "Good Job Games", "publishedAt": "2026-09-01T00:00:00+00:00",
+        }]},
+    })
+    settings = SearchSettings(sources=SourceSettings(lever=["peakgames"], ashby=["good-job-games"]))
+    [lever_job] = LeverSource(client).fetch(settings)
+    [ashby_job] = AshbySource(client).fetch(settings)
+    assert lever_job.location is None and ashby_job.location is None
+
+
+def test_unknown_location_kept_only_for_company_boards():
+    s = SearchSettings(locations=["İstanbul"])
+    board_job = raw(location=None)
+    board_job.source = "lever"
+    assert filters.matches_location(board_job, s)
+    assert not filters.matches_location(raw(location=None), s)
+    assert not filters.matches_location(board_job, SearchSettings(remote_only=True))
 
 
 def test_ashby_skips_unlisted():
@@ -215,8 +277,11 @@ def search_env(client, monkeypatch):
 
     packaged = []
     monkeypatch.setattr(service, "score_jobs", fake_score)
-    monkeypatch.setattr(service, "generate_package", packaged.append)
-    return {"sources": sources, "calls": calls, "packaged": packaged}
+    monkeypatch.setattr(service, "_queue_package", packaged.append)
+    # Saved postings are re-checked over HTTP; answer from this dict instead (url -> Check).
+    pages: dict[str, Check] = {}
+    monkeypatch.setattr(service, "check_posting", lambda url, client: pages.get(url, Check(None, "?")))
+    return {"sources": sources, "calls": calls, "packaged": packaged, "pages": pages}
 
 
 def test_search_run_end_to_end(client, search_env):
@@ -224,17 +289,17 @@ def test_search_run_end_to_end(client, search_env):
     assert res.status_code == 202
     run = client.get(f"/api/search/runs/{res.json()['id']}").json()
     assert run["status"] == "done" and run["error"] is None
-    assert (run["jobs_found"], run["jobs_new"], run["jobs_above_threshold"]) == (4, 2, 1)
+    assert (run["jobs_found"], run["jobs_new"], run["jobs_above_threshold"]) == (4, 1, 1)
 
-    # designer filtered by rules, senior filtered by seniority after scoring
+    # designer filtered by rules; after scoring, senior dropped by seniority, weak by low score
     assert sorted(search_env["calls"][0]) == ["https://x.com/good", "https://x.com/senior", "https://x.com/weak"]
     jobs = client.get("/api/jobs").json()
-    assert [(j["url"], j["score"]) for j in jobs] == [("https://x.com/good", 85), ("https://x.com/weak", 40)]
+    assert [(j["url"], j["score"]) for j in jobs] == [("https://x.com/good", 85)]
     good = jobs[0]
     assert good["package_status"] == "generating" and good["seniority"] == "mid"
     assert search_env["packaged"] == [good["id"]]
 
-    # A second run finds nothing new and doesn't re-score the senior posting.
+    # A second run finds nothing new and doesn't re-score the dropped postings.
     client.post("/api/search/run")
     assert len(search_env["calls"]) == 1
     runs = client.get("/api/search/runs").json()
@@ -269,3 +334,253 @@ def test_invalid_cron_is_rejected(client):
     settings = load_example("settings")
     settings["schedule_cron"] = "every morning"
     assert client.put("/api/settings", json=settings).status_code == 422
+
+
+def _age_checks(job_id):
+    """Pretend the last check was long ago, so the next run looks at the page again."""
+    from sqlmodel import Session
+
+    from app.db import JobRow, get_engine
+
+    with Session(get_engine()) as session:
+        row = session.get(JobRow, job_id)
+        row.last_verified_at = datetime(2020, 1, 1, tzinfo=UTC)
+        session.add(row)
+        session.commit()
+
+
+def test_saved_posting_that_closes_and_reopens_is_tracked(client, search_env):
+    client.post("/api/search/run")
+    job = client.get("/api/jobs").json()[0]
+    assert job["posting_status"] == "unknown"
+
+    search_env["pages"]["https://x.com/good"] = Check("closed", "Sayfada “başvurular kapandı” yazıyor.")
+    _age_checks(job["id"])
+    run = client.get(f"/api/search/runs/{client.post('/api/search/run').json()['id']}").json()
+    assert run["jobs_closed"] == 1
+    job = client.get(f"/api/jobs/{job['id']}").json()
+    assert job["posting_status"] == "closed" and "kapandı" in job["verification_reason"]
+
+    search_env["pages"]["https://x.com/good"] = Check("open", "İlan sayfası yayında.")
+    _age_checks(job["id"])
+    client.post("/api/search/run")
+    from sqlmodel import Session, col, select
+
+    from app.db import SearchRunRow, get_engine
+
+    with Session(get_engine()) as session:
+        last = session.exec(select(SearchRunRow).order_by(col(SearchRunRow.started_at).desc())).first()
+        assert last.summary["reopened"] == [job["id"]]
+    assert client.get(f"/api/jobs/{job['id']}").json()["posting_status"] == "open"
+
+
+def test_board_posting_missing_from_the_board_is_closed(client, search_env, monkeypatch):
+    listed = raw(title="Backend Developer", url="https://jobs.lever.co/firma/1")
+    listed.source, listed.posting_status, listed.verification_reason = "lever", "open", "Listede"
+    board = FakeSource(None)
+    board.name = "lever"
+    board.jobs = [listed]
+    search_env["sources"][:] = [board]
+    search_env["calls"].clear()
+
+    def score(profile, projects, jobs):
+        return [JobScore(index=i, score=80, score_reason="iyi", seniority="mid") for i, _ in enumerate(jobs)]
+
+    monkeypatch.setattr(service, "score_jobs", score)
+    client.post("/api/search/run")
+    job = client.get("/api/jobs").json()[0]
+    assert job["posting_status"] == "open" and job["last_verified_at"]
+
+    board.jobs = [raw(title="Backend Developer", url="https://jobs.lever.co/firma/2")]
+    board.jobs[0].source = "lever"
+    client.post("/api/search/run")
+    assert client.get(f"/api/jobs/{job['id']}").json()["posting_status"] == "closed"
+
+
+def test_scheduled_run_emails_the_report(client, search_env, monkeypatch):
+    from app.search import report
+
+    settings = client.get("/api/settings").json()
+    client.put("/api/settings", json={**settings, "daily_report": True})
+    sent = []
+    monkeypatch.setattr(report, "send_email", lambda subject, text, html: sent.append((subject, text)) or "me@x.com")
+
+    service.run_scheduled_search()
+    assert len(sent) == 1
+    subject, text = sent[0]
+    assert "Yeni bulunan ilanlar (1)" in text and "https://x.com/good" in text
+    assert "1 ilan" in subject
+
+    # A manual run doesn't email; the report can still be sent on demand.
+    client.post("/api/search/run")
+    assert len(sent) == 1
+    run_id = client.get("/api/search/runs", params={"limit": 1}).json()[0]["id"]
+    assert client.post(f"/api/search/runs/{run_id}/report").json() == {"sent_to": "me@x.com"}
+
+
+def test_report_needs_mail_settings(client, search_env):
+    client.post("/api/search/run")
+    run_id = client.get("/api/search/runs", params={"limit": 1}).json()[0]["id"]
+    res = client.post(f"/api/search/runs/{run_id}/report")
+    assert res.status_code == 409 and "IMAP_USER" in res.json()["detail"]
+
+
+def _saved_urls():
+    from sqlmodel import Session, select
+
+    from app.db import JobRow, get_engine
+
+    with Session(get_engine()) as session:
+        return sorted(session.exec(select(JobRow.url)).all())
+
+
+def test_each_scored_batch_is_saved_even_if_a_later_one_fails(client, search_env, monkeypatch):
+    monkeypatch.setattr(service, "SCORE_BATCH", 1)
+    FakeSource.jobs = [raw(title="Backend Developer", url="https://x.com/good"),
+                       raw(title="Backend Developer", url="https://x.com/second")]
+    calls = []
+
+    def score(profile, projects, jobs):
+        calls.append(jobs)
+        if len(calls) == 2:
+            raise RuntimeError("LLM düştü")
+        return [JobScore(index=0, score=85, score_reason="iyi", seniority="mid")]
+
+    monkeypatch.setattr(service, "score_jobs", score)
+    run = client.post("/api/search/run").json()
+    run = client.get(f"/api/search/runs/{run['id']}").json()
+    assert run["status"] == "failed" and "LLM düştü" in run["error"]
+    assert run["jobs_scored"] == 1 and run["jobs_new"] == 1
+    assert len(_saved_urls()) == 1
+    assert search_env["packaged"]  # its package started without waiting for the run
+
+
+def test_fast_sources_are_saved_while_the_web_search_is_still_running(client, search_env, monkeypatch):
+    import threading
+    import time
+
+    release = threading.Event()
+
+    class SlowWeb(FakeSource):
+        name = "web"
+
+        def fetch(self, settings):
+            assert release.wait(10)
+            return [raw(title="Backend Developer", url="https://x.com/good")]
+
+    FakeSource.jobs = [raw(title="Backend Developer", url="https://x.com/weak"),
+                       raw(title="Backend Developer", url="https://x.com/senior")]
+    search_env["sources"][:] = [FakeSource(None), SlowWeb(None)]
+    scored = {"https://x.com/good": 85, "https://x.com/weak": 75, "https://x.com/senior": 90}
+
+    def score(profile, projects, jobs):
+        return [JobScore(index=i, score=scored[j.url], score_reason="iyi", seniority="mid") for i, j in enumerate(jobs)]
+
+    monkeypatch.setattr(service, "score_jobs", score)
+    try:
+        run, created = service.start_run()
+        worker = threading.Thread(target=service.execute_run, args=(run.id,))
+        worker.start()
+        for _ in range(100):  # the fast source's jobs appear before the web search returns
+            if _saved_urls() == ["https://x.com/senior", "https://x.com/weak"]:
+                break
+            time.sleep(0.05)
+        assert _saved_urls() == ["https://x.com/senior", "https://x.com/weak"]
+        progress = client.get(f"/api/search/runs/{run.id}").json()
+        assert progress["status"] == "running" and progress["jobs_scored"] == 2
+        release.set()
+        worker.join(10)
+    finally:
+        release.set()
+    assert _saved_urls() == ["https://x.com/good", "https://x.com/senior", "https://x.com/weak"]
+    done = client.get(f"/api/search/runs/{run.id}").json()
+    assert done["status"] == "done" and done["jobs_new"] == 3 and done["jobs_found"] == 3
+
+
+def test_database_waits_for_the_other_writer_and_reads_do_not_block(client):
+    from sqlalchemy import text
+    from sqlmodel import Session
+
+    from app.db import get_engine
+
+    with Session(get_engine()) as session:
+        conn = session.connection()
+        assert conn.execute(text("PRAGMA journal_mode")).scalar() == "wal"
+        assert conn.execute(text("PRAGMA busy_timeout")).scalar() == 30000
+
+
+def test_a_run_that_breaks_while_failing_is_still_marked_failed(client, search_env, monkeypatch):
+    def broken(session, run):
+        session.close = None  # closing this session will blow up too
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(service, "_search", broken)
+    run = client.post("/api/search/run").json()
+    run = client.get(f"/api/search/runs/{run['id']}").json()
+    # Before, a second failure while marking the run left it "running" for good.
+    assert run["status"] == "failed" and run["finished_at"]
+
+
+
+def test_a_scoring_failure_skips_its_postings_and_the_run_goes_on(client, search_env, monkeypatch):
+    from app.llm.runner import LLMError
+
+    monkeypatch.setattr(service, "SCORE_BATCH", 1)
+    FakeSource.jobs = [raw(url=f"https://x.com/{name}") for name in "abcd"]
+    calls = []
+    failing = {1, 3}  # calls that time out; two failures stop scoring for the run
+
+    def score(profile, projects, jobs):
+        calls.append(jobs[0].url)
+        if len(calls) in failing:
+            raise LLMError("LLM yanıtı zaman aşımına uğradı.")
+        return [JobScore(index=0, score=85, score_reason="iyi", seniority="mid")]
+
+    monkeypatch.setattr(service, "score_jobs", score)
+    run = client.post("/api/search/run").json()
+    run = client.get(f"/api/search/runs/{run['id']}").json()
+    assert run["status"] == "done" and "puanlanamadı" in run["error"]
+    assert len(calls) == 3 and run["jobs_scored"] == 1 and run["jobs_new"] == 1
+    assert len(_saved_urls()) == 1
+
+    # Nothing was marked seen, so the next run scores the other three.
+    failing.clear()
+    client.post("/api/search/run")
+    assert len(_saved_urls()) == 4
+
+
+def test_the_same_posting_from_another_source_is_saved_once(client, search_env, monkeypatch):
+    def posting(source, url, company, title, description="Python"):
+        job = raw(title=title, url=url)
+        job.source, job.company, job.description = source, company, description
+        return job
+
+    board = posting("ashby", "https://jobs.ashbyhq.com/gjg/1", "Good Job Games",
+                    "Backend Developer - New Grad", "Tam ilan metni. " * 50)
+    # Another location of the same role on the same board is a second posting.
+    board_2 = posting("ashby", "https://jobs.ashbyhq.com/gjg/2", "Good Job Games", "Backend Developer - New Grad")
+    alert = posting("email", "https://www.linkedin.com/jobs/view/1", "Good Job Games Ltd.",
+                    "Backend Developer (New Grad)")
+    FakeSource.jobs = [alert, board, board_2]
+    scored = []
+
+    def score(profile, projects, jobs):
+        scored.extend(j.url for j in jobs)
+        return [JobScore(index=i, score=80, score_reason="iyi", seniority="junior") for i, _ in enumerate(jobs)]
+
+    monkeypatch.setattr(service, "score_jobs", score)
+    client.post("/api/search/run")
+    assert _saved_urls() == ["https://jobs.ashbyhq.com/gjg/1", "https://jobs.ashbyhq.com/gjg/2"]
+
+    # A later alert email with the same posting isn't scored or saved either.
+    FakeSource.jobs = [posting("email", "https://www.linkedin.com/jobs/view/2", "Good Job Games",
+                               "Backend Developer - New Grad")]
+    client.post("/api/search/run")
+    assert len(_saved_urls()) == 2 and "linkedin" not in " ".join(scored)
+
+
+def test_posting_key_ignores_punctuation_case_and_legal_form():
+    assert filters.posting_key("Ingenium Yazılım Limited Şirketi", "Yazılım Mühendisi") == \
+        filters.posting_key("INGENIUM YAZILIM", "Yazilim Muhendisi")
+    assert filters.posting_key("Peak", "Software Engineer, Games (New Grad)") != \
+        filters.posting_key("Peak", "Software Engineer, Backend (New Grad)")

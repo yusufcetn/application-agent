@@ -3,7 +3,9 @@ from sqlmodel import Session, col, select
 
 from app.db import SearchRunRow, get_session
 from app.schemas import SearchRun
+from app.search.report import send_run_report
 from app.search.service import ProfileMissingError, execute_run, start_run, to_search_run
+from app.services.mailer import MailError, MailNotConfiguredError
 
 router = APIRouter(tags=["search"])
 
@@ -37,3 +39,19 @@ def get_run(run_id: str, session: Session = Depends(get_session)) -> SearchRun:
     if not row:
         raise HTTPException(404, "Tarama bulunamadı.")
     return to_search_run(row)
+
+
+@router.post("/search/runs/{run_id}/report")
+def send_report(run_id: str, session: Session = Depends(get_session)) -> dict:
+    """Emails the daily report for this run now (e.g. to try the email settings)."""
+    row = session.get(SearchRunRow, run_id)
+    if not row:
+        raise HTTPException(404, "Tarama bulunamadı.")
+    if row.status == "running":
+        raise HTTPException(409, "Tarama bitmeden rapor gönderilemez.")
+    try:
+        return {"sent_to": send_run_report(session, row)}
+    except MailNotConfiguredError as e:
+        raise HTTPException(409, str(e)) from e
+    except MailError as e:
+        raise HTTPException(502, str(e)) from e

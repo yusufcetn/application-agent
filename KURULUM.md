@@ -14,9 +14,11 @@ Geliştirme ve demo veriyle test için [frontend/README.md](frontend/README.md) 
 | Git | Repoyu çekmek | `git --version` |
 | [uv](https://docs.astral.sh/uv/) | Backend (Python) | `uv --version` |
 | Node.js 22 | Arayüzü derlemek | `node --version` |
-| Claude Code **veya** Codex CLI, oturum açık | LLM çağrıları (abonelik, API anahtarı yok) | `claude -p "merhaba"` veya `codex exec "merhaba"` |
+| Antigravity CLI (varsayılan), Claude Code **veya** Codex CLI, oturum açık | LLM çağrıları (hesabın, API anahtarı yok) | `agy models`, `claude -p "merhaba"` veya `codex exec "merhaba"` |
 | Tailscale (bilgisayar + telefon) | Telefondan erişim | `tailscale status` |
 
+Antigravity CLI'ı Windows'ta PowerShell'de `irm https://antigravity.google/cli/install.ps1 | iex` ile kur
+(macOS için antigravity.google'daki komut), sonra yeni bir terminal açıp `agy` ile Google hesabınla giriş yap.
 Windows'ta Claude Code, Git for Windows (Git Bash) da ister.
 
 ## 2. Bir kerelik kurulum
@@ -24,8 +26,8 @@ Windows'ta Claude Code, Git for Windows (Git Bash) da ister.
 macOS ve Windows'ta komutlar aynı. Windows'ta PowerShell kullan.
 
 ```bash
-git clone git@github.com:yusufcetn/application-agent.git
-cd application-agent
+git clone git@github.com:yusufcetn/apply-agent.git
+cd apply-agent
 
 cd backend
 uv sync
@@ -39,10 +41,10 @@ cd ..
 Kök dizindeki `.env.example` dosyasını `.env` adıyla kopyala ve şunları doldur:
 
 ```ini
-# claude veya codex: hangi CLI'da oturumun açıksa
-LLM_PROVIDER=claude
-# Boş bırakırsan CLI'ın varsayılan modeli kullanılır
-LLM_MODEL=sonnet
+# antigravity, claude veya codex: hangi CLI'da oturumun açıksa
+LLM_PROVIDER=antigravity
+# Boş bırakırsan antigravity'de gemini-3.8-flash-medium, diğerlerinde CLI'ın varsayılanı kullanılır
+LLM_MODEL=
 # Telefondan erişim için uzun, rastgele bir değer (aşağıdaki komutla üret)
 API_TOKEN=
 ```
@@ -63,6 +65,17 @@ uv run uvicorn app.main:app --port 8000
 
 Tarayıcıda `http://127.0.0.1:8000` adresini aç. Arayüz ve API aynı adreste. Bu terminal açık kaldığı
 sürece uygulama çalışır, her sabah 08:00'deki otomatik tarama da sadece o sırada yapılır.
+
+**Windows'ta otomatik başlatma:** terminal açık tutmak yerine backend'i oturum açılınca başlatan ve
+her sabah 07:55'te bilgisayarı uykudan uyandıran bir Görev Zamanlayıcı görevi kurabilirsin:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File backend\scripts\windows_autostart.ps1
+```
+
+Çıktı `data\backend.log` dosyasına yazılır. Uyandırma için güç seçeneklerinde "Uyandırma zamanlayıcılarına
+izin ver" açık olmalı; tamamen kapalı bilgisayar açılmaz. Kaldırmak için sona `-Remove` ekle. Görev
+çalışırken backend'i ayrıca terminalden başlatma, port çakışır.
 
 Repoyu güncelledikten sonra (`git pull`):
 
@@ -123,8 +136,10 @@ Ayarlar sayfasında şunları gir:
   şirketlerin kariyer sayfası adresinden alınır: `job-boards.greenhouse.io/firma` → `firma`,
   `jobs.lever.co/firma` → `firma`, `jobs.ashbyhq.com/firma` → `firma`.
 
-Kaydet, sonra **Şimdi tara**. Tarama 1–3 dk sürer. Eşik üstündeki ilanların paketleri arkasından
-hazırlanır, her biri yaklaşık 1 dk.
+Kaydet, sonra **Şimdi tara**. İlanlar 10'arlı gruplar halinde puanlanır ve her grup bitince listeye
+düşer; kenar çubuğunda kaç ilanın puanlandığı görünür. Hızlı kaynaklar 1–3 dk sürer, web araması açıksa
+arkada birkaç dakika daha devam eder. Eşik üstündeki ilanların paketleri tarama sürerken sırayla
+hazırlanır, her biri 1–3 dk.
 
 - **Bak:** bulunan ilanlar gerçekten hedefine uygun mu? Puan gerekçeleri mantıklı mı?
   "Hiçbir kaynak okunamadı" gibi bir uyarı çıktı mı? Aynı taramayı tekrar çalıştırınca eski ilanlar
@@ -141,9 +156,42 @@ IMAP_PASSWORD=uygulama-şifresi
 ```
 
 Backend'i yeniden başlat, Ayarlar'da **E-posta alarmları** seçeneğini aç ve tara. Posta kutusu salt
-okunur açılır: hiçbir e-posta okundu olarak işaretlenmez, silinmez ya da gönderilmez.
+okunur açılır: hiçbir e-posta okundu olarak işaretlenmez ya da silinmez.
+
+Son `EMAIL_LOOKBACK_DAYS` günün (varsayılan 14) alarm e-postalarındaki ilanlar her taramada o günkü
+ayarlarınla yeniden filtrelenir. Sonradan bir pozisyon eklersen daha önce okunmuş e-postalardaki uygun
+ilanlar da gelir. Her e-posta yapay zekâya yalnızca bir kez okutulur; daha önce kaydedilmiş ya da
+puanlanıp elenmiş ilanlar tekrar puanlanmaz.
 
 - **Bak:** alarm e-postalarındaki ilanlar "E-posta alarmı" kaynağıyla listeye düştü mü?
+
+### 4.6 (İsteğe bağlı) Web araması
+
+Ayarlar > İlan kaynakları'nda **Web araması**'nı aç. Yapay zekâ ajanı ayarlarındaki roller ve konumlarla
+hedefli aramalar yapar (şirket kariyer sayfaları, Youthall, Kariyer.net, LinkedIn linkleri). Bulduğu bir
+şirket Greenhouse, Lever, Ashby, Workable ya da SmartRecruiters kullanıyorsa o şirketin bütün açık ilanları
+bu sitelerin herkese açık API'sinden çekilir ve senin rol/konum filtrenden geçer. Diğer linklerden tek bir
+ilana gitmeyenler (logo, liste ya da kariyer ana sayfası) atılır. Bot engelleyen sitelerin (ör. Kariyer.net)
+ilanları doğrulanamadığı için web aramasından alınmaz; bunlar için e-posta alarmlarını kullan.
+Sadece başvuruya açık olduğu görülen ilanlar listeye girer. LinkedIn'e giriş yapılmaz, sadece link bulmak
+için kullanılır. Web araması diğer kaynaklarla aynı anda çalışır, onları bekletmez.
+
+Antigravity kullanıyorsan ajanın sayfa açabilmesi için bir kerelik izin gerekir. Şu içerikle
+`~/.gemini/antigravity-cli/settings.json` dosyasını oluştur (Windows'ta `C:\Users\ad\.gemini\...`):
+
+```json
+{ "permissions": { "allow": ["read_url(*)", "search_web(*)"] } }
+```
+
+Kayıtlı ilanlar her taramada tekrar kontrol edilir: kapananlar "Kapandı" olarak işaretlenir ve listede
+gizlenir, yeniden açılanlar geri gelir. LinkedIn ve bot engelleyen sitelerdeki (ör. Kariyer.net) ilanlar
+otomatik kontrol edilemez.
+
+### 4.7 (İsteğe bağlı) Sabah raporu
+
+4.5'teki Gmail uygulama şifresi e-posta göndermek için de kullanılır. Ayarlar > Zamanlama'da **Sabah
+raporu**'nu aç. Her günlük taramadan sonra yeni ilanlar, başvurmadığın açık ilanlar, son başvurusu
+yaklaşanlar ve kapananlar sana e-postayla gelir. **Son taramanın raporunu şimdi gönder** ile hemen dene.
 
 ## 5. Telefona uygulama olarak yükleme (Android)
 
@@ -175,13 +223,15 @@ Telefon, bilgisayar açıkken ve backend çalışırken bağlanır. Laptop uykud
 
 | Belirti | Sebep ve çözüm |
 |---|---|
-| "LLM API anahtarı…" ya da "komutu bulunamadı" (503) | CLI kurulu değil ya da backend onu PATH'te bulamıyor. `.env` içinde `CLAUDE_BIN` / `CODEX_BIN` ile tam yolunu ver |
+| "LLM API anahtarı…" ya da "komutu bulunamadı" (503) | CLI kurulu değil ya da backend onu PATH'te bulamıyor. `.env` içinde `ANTIGRAVITY_BIN` / `CLAUDE_BIN` / `CODEX_BIN` ile tam yolunu ver |
 | "Claude CLI hatası: Failed to authenticate" (502) | CLI oturumu kapanmış. Terminalde `claude` çalıştırıp `/login` yap |
 | Telefonda "Uzaktan erişim için API_TOKEN ayarlanmalı" | `.env` içinde `API_TOKEN` boş ya da backend yeniden başlatılmamış |
 | Telefonda anahtar ekranı sürekli geri geliyor | `API_TOKEN` değişmiş; yeni anahtarı gir |
 | Telefonda "İstek başarısız oldu (HTTP 502)" | Backend kapalı, Tailscale hâlâ açık. Backend'i başlat |
 | Paket "hazırlanamadı" | Sebep altında yazar. İlan metni okunamadıysa metni yapıştır ve **Kaydet ve yeniden oluştur** |
-| Port 8000 kullanımda | `--port 8001` ile başlat, `tailscale serve --bg 8001` |
+| Port 8000 kullanımda | Otomatik başlatma görevi açık olabilir (`Get-ScheduledTask "Apply Agent"`). Değilse `--port 8001` ile başlat, `tailscale serve --bg 8001` |
+| "Antigravity web araçları için izin gerekli" | 4.6'daki `settings.json` dosyasını oluştur |
+| Rapor e-postası gelmiyor | `.env` içinde `IMAP_USER` / `IMAP_PASSWORD` dolu mu? Ayarlar'daki **şimdi gönder** düğmesi hatayı gösterir |
 
 Hata bildirirken şunları yaz: ne yaptın, ne bekledin, ne oldu. Varsa backend terminalindeki son satırları
 ve ilgili ilanın linkini de ekle.

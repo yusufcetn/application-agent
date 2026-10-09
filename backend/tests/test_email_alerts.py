@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 
 import pytest
@@ -95,17 +96,51 @@ def imap(client, monkeypatch):
     return calls
 
 
-def test_email_source_reads_each_email_once(imap):
+def test_email_source_extracts_each_email_once_but_returns_its_postings_every_run(imap):
     source = EmailAlertSource(make_client())
     [job] = source.fetch(SearchSettings())
     assert job.source == "email" and job.company == "Örnek Firma" and job.description == "Easy Apply"
+    assert job.url == "https://www.linkedin.com/jobs/view/4012345678"
     assert job.posted_at.year == 2026
     assert FakeIMAP.selected_readonly is True  # never marks mails as read
 
-    assert source.fetch(SearchSettings()) == []  # already processed
+    # Read again with today's settings, without another LLM call.
+    assert [j.url for j in source.fetch(SearchSettings())] == [job.url]
+    assert len(imap) == 1
+    # The same posting in a newer email is still one posting.
     FakeIMAP.mailbox.append(make_email("<second@linkedin>"))
     assert len(source.fetch(SearchSettings())) == 1
     assert len(imap) == 2
+
+
+def test_emails_marked_by_older_versions_are_extracted_again(imap):
+    from sqlmodel import Session
+
+    from app.db import SeenPostingRow, get_engine
+
+    with Session(get_engine()) as session:
+        session.add(SeenPostingRow(url="email:<first@linkedin>", seen_at=datetime.now(UTC)))
+        session.commit()
+    assert len(EmailAlertSource(make_client()).fetch(SearchSettings())) == 1
+    assert len(imap) == 1
+
+
+def test_emails_out_of_the_window_are_forgotten_with_their_postings(imap):
+    from sqlmodel import Session, select
+
+    from app.db import AlertEmailRow, AlertPostingRow, get_engine
+
+    source = EmailAlertSource(make_client())
+    source.fetch(SearchSettings())
+    FakeIMAP.mailbox = []  # the mailbox no longer lists it
+    with Session(get_engine()) as session:
+        row = session.get(AlertEmailRow, "<first@linkedin>")
+        row.read_at = datetime.now(UTC) - timedelta(days=config.get_settings().email_lookback_days + 3)
+        session.add(row)
+        session.commit()
+    assert source.fetch(SearchSettings()) == []
+    with Session(get_engine()) as session:
+        assert session.exec(select(AlertPostingRow)).all() == []
 
 
 def test_email_source_needs_credentials(client, monkeypatch):
@@ -135,3 +170,34 @@ def test_search_run_saves_email_jobs_beyond_cap(client, imap, monkeypatch):
     [job] = client.get("/api/jobs").json()
     assert job["source"] == "email"
     assert job["url"] == "https://www.linkedin.com/jobs/view/4012345678"
+
+
+def test_role_added_later_finds_postings_in_emails_already_read(client, imap, monkeypatch):
+    from app.llm.score import JobScore
+    from app.search import service
+
+    client.put("/api/profile", json=load_example("profile"))
+    settings = load_example("settings")
+    settings.update(target_roles=["Frontend Developer"], locations=[], seniority=[],
+                    auto_package=False,
+                    sources={**settings["sources"], "greenhouse": [], "lever": [], "ashby": [],
+                             "remoteok": False, "remotive": False, "arbeitnow": False,
+                             "adzuna": False, "web_search": False, "email_alerts": True})
+    client.put("/api/settings", json=settings)
+    scored = []
+
+    def score(profile, projects, jobs):
+        scored.extend(jobs)
+        return [JobScore(index=i, score=80, score_reason="Uygun.") for i, _ in enumerate(jobs)]
+
+    monkeypatch.setattr(service, "score_jobs", score)
+    client.post("/api/search/run")
+    assert client.get("/api/jobs").json() == [] and scored == []
+
+    client.put("/api/settings", json={**settings, "target_roles": ["Backend Developer"]})
+    client.post("/api/search/run")
+    [job] = client.get("/api/jobs").json()
+    assert job["url"] == "https://www.linkedin.com/jobs/view/4012345678"
+
+    client.post("/api/search/run")  # saved postings are not scored again
+    assert len(scored) == 1 and len(imap) == 1

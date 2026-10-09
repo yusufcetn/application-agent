@@ -16,33 +16,70 @@ _GENERIC_ROLE_WORDS = {
 }
 GENERIC_ROLE_WORDS = {fold(w) for w in _GENERIC_ROLE_WORDS}
 
+# Work arrangements ("Part Time", "Uzun Dönem"): they don't name a field either, so
+# "Part Time Software Engineer" must not match every part-time posting.
+_WORK_TYPE_WORDS = {
+    "part", "time", "parttime", "full", "fulltime", "yarı", "zamanlı", "tam", "working",
+    "student", "werkstudent", "öğrenci", "uzun", "kısa", "dönem", "long", "short", "term",
+    "aday", "new", "grad", "graduate", "yeni", "mezun", "trainee", "remote", "uzaktan",
+}
+WORK_TYPE_WORDS = {fold(w) for w in _WORK_TYPE_WORDS}
+
+# A role made only of generic and work-type words ("Working Student", "Stajyer") also needs
+# one of these in the title, so it stays within software work.
+FIELD_WORDS = {fold(w) for w in (
+    "developer", "engineer", "software", "dev", "programmer", "geliştirici", "mühendis",
+    "yazılım", "programcı", "backend", "frontend", "fullstack", "mobile", "ai", "ml", "devops",
+)}
+
+# Turkish possessive and English noun forms of generic words: "Yazılım Stajyeri" is
+# "stajyer", not a specific word that would match "Muhasebe Stajyeri".
+_WORD_FORMS = {
+    "stajyeri": "stajyer", "muhendisi": "muhendis", "muhendisligi": "muhendis",
+    "muhendislik": "muhendis", "gelistiricisi": "gelistirici", "uzmani": "uzman",
+    "engineering": "engineer", "internship": "intern", "developers": "developer",
+    "engineers": "engineer",
+}
+_NOT_SPECIFIC = GENERIC_ROLE_WORDS | WORK_TYPE_WORDS
+
+# Companies the user picked by hand; their postings are kept when the location is unknown.
+COMPANY_BOARD_SOURCES = {"greenhouse", "lever", "ashby"}
+
 # Postings are often in English while the settings are in Turkish (after fold()).
 LOCATION_ALIASES = {"turkiye": ["turkey"], "turkey": ["turkiye"]}
 
 
 def _normalize(text: str) -> str:
-    return re.sub(r"[-_/.,()]", " ", fold(text)).replace("back end", "backend").replace(
+    text = re.sub(r"[-_/.,()]", " ", fold(text)).replace("back end", "backend").replace(
         "front end", "frontend"
     ).replace("full stack", "fullstack")
+    return " ".join(_WORD_FORMS.get(word, word) for word in text.split())
 
 
 def _role_token_sets(target_roles: list[str]) -> list[list[str]]:
     sets = []
     for role in target_roles:
         tokens = _normalize(role).split()
-        specific = [t for t in tokens if t not in GENERIC_ROLE_WORDS]
+        specific = [t for t in tokens if t not in _NOT_SPECIFIC]
         sets.append(specific or tokens)
     return [s for s in sets if s]
 
 
 def matches_role(title: str, target_roles: list[str]) -> bool:
-    """'Backend Developer' matches any title containing 'backend';
-    a fully generic role like 'Software Engineer' needs all of its words."""
+    """'Backend Developer' matches any title containing 'backend'. A role without a
+    specific word, like 'Software Engineer' or 'Part Time Software Engineer', needs all of
+    its words, and one without a field word ('Working Student') also needs a software one."""
     token_sets = _role_token_sets(target_roles)
     if not token_sets:
         return True
     words = set(_normalize(title).split())
-    return any(all(t in words for t in tokens) for tokens in token_sets)
+    for tokens in token_sets:
+        if not all(t in words for t in tokens):
+            continue
+        fieldless = set(tokens) <= _NOT_SPECIFIC and not set(tokens) & FIELD_WORDS
+        if not fieldless or words & FIELD_WORDS:
+            return True
+    return False
 
 
 def is_excluded(title: str, keywords_exclude: list[str]) -> bool:
@@ -59,6 +96,8 @@ def matches_location(job: RawJob, settings: SearchSettings) -> bool:
     if not wanted:
         return True
     if remote and any(looks_remote(loc) for loc in wanted):
+        return True
+    if not job.location and job.source in COMPANY_BOARD_SOURCES:
         return True
     location = fold(job.location or "")
     return any(loc in location for loc in wanted if not looks_remote(loc))
@@ -80,6 +119,22 @@ def prefilter(jobs: list[RawJob], settings: SearchSettings, max_age_days: int) -
         and matches_location(j, settings)
         and is_recent(j, max_age_days)
     ]
+
+
+# Legal-form words left out when comparing company names ("Ingenium Yazılım Limited Şirketi").
+_COMPANY_SUFFIXES = {
+    "inc", "ltd", "llc", "gmbh", "corp", "co", "bv", "as", "sti", "limited", "sirketi",
+    "anonim", "ticaret", "san", "tic",
+}
+
+
+def posting_key(company: str, title: str) -> str:
+    """The same posting found through different sources (a company board, an alert email,
+    a web search) has different URLs but the same company and title."""
+    company_words = [w for w in re.sub(r"[^a-z0-9]+", " ", fold(company)).split()
+                     if w not in _COMPANY_SUFFIXES]
+    title_words = re.sub(r"[^a-z0-9]+", " ", fold(title)).split()
+    return f"{' '.join(company_words)}|{' '.join(title_words)}"
 
 
 def profile_keywords(profile: Profile, projects: list[Project], target_roles: list[str]) -> set[str]:

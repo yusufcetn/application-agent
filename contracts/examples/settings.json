@@ -15,7 +15,9 @@
     "remotive": true,
     "arbeitnow": true,
     "adzuna": false,
-    "email_alerts": false
+    "email_alerts": false,
+    "web_search": false
   },
-  "schedule_cron": "0 8 * * *"
+  "schedule_cron": "0 8 * * *",
+  "daily_report": false
 }

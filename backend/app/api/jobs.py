@@ -1,10 +1,11 @@
+import shutil
 from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from sqlmodel import Session, col, select
 
-from app.db import JobRow, PackageRow, get_session
+from app.db import JobRow, PackageRow, SeenPostingRow, get_session
 from app.jobs.fetch import FetchError, fetch_posting_text
 from app.jobs.urls import normalize_url
 from app.llm.job_extract import extract_job
@@ -89,30 +90,43 @@ def add_manual_job(
     background: BackgroundTasks,
     session: Session = Depends(get_session),
 ) -> Job:
-    url = normalize_url(body.url)
-    if not url.startswith(("http://", "https://")):
-        raise HTTPException(422, "Geçerli bir ilan linki girin.")
-    existing = session.exec(select(JobRow).where(JobRow.url == url)).first()
-    if existing:
-        response.status_code = 200
-        return _to_job(existing)
+    url = normalize_url(body.url.strip()) if body.url and body.url.strip() else ""
+    text = body.text.strip() if body.text and body.text.strip() else ""
 
-    try:
-        page_text = body.text or fetch_posting_text(url)
-    except FetchError as e:
-        raise HTTPException(422, f"{e} İlan metnini kopyalayıp yapıştırarak tekrar dene.") from e
-    extracted = extract_job(page_text, url)
+    if not url and not text:
+        raise HTTPException(422, "İlan bağlantısı veya ilan metni girmelisiniz.")
+    if url and not url.startswith(("http://", "https://")):
+        raise HTTPException(422, "Geçerli bir ilan linki girin.")
+
+    if url:
+        existing = session.exec(select(JobRow).where(JobRow.url == url)).first()
+        if existing:
+            response.status_code = 200
+            return _to_job(existing)
+
+    if text:
+        page_text = text
+    else:
+        try:
+            page_text = fetch_posting_text(url)
+        except FetchError as e:
+            raise HTTPException(422, f"{e} İlan metnini kopyalayıp yapıştırarak tekrar dene.") from e
+
+    extracted = extract_job(page_text, url or "manual")
     if not extracted.is_job_posting:
         raise HTTPException(
             422,
-            "Bu sayfada bir iş ilanı bulunamadı (giriş ekranı veya süresi dolmuş ilan olabilir). "
+            "Bu sayfada veya metinde bir iş ilanı bulunamadı (giriş ekranı veya süresi dolmuş ilan olabilir). "
             "İlan metnini kopyalayıp yapıştırarak tekrar dene.",
         )
 
+    job_id = new_id("job")
+    job_url = url if url else f"manual:{job_id}"
+
     row = JobRow(
-        id=new_id("job"),
+        id=job_id,
         source="manual",
-        url=url,
+        url=job_url,
         company=extracted.company,
         title=extracted.title,
         location=extracted.location,
@@ -121,6 +135,7 @@ def add_manual_job(
         posted_at=_parse_date(extracted.posted_at),
         found_at=datetime.now(UTC),
         description=extracted.description,
+        description_pasted=bool(text),
     )
     session.add(row)
     session.commit()
@@ -132,13 +147,31 @@ def add_manual_job(
 @router.patch("/jobs/{job_id}")
 def update_job(job_id: str, body: JobUpdate, session: Session = Depends(get_session)) -> Job:
     row = _get_job_row(session, job_id)
-    for field, value in body.model_dump(exclude_unset=True, exclude_none=True).items():
+    for field, value in body.model_dump(exclude_unset=True, exclude_none=True, exclude={"seen"}).items():
         setattr(row, field, value)
+    if body.seen is not None:
+        row.seen_at = (row.seen_at or datetime.now(UTC)) if body.seen else None
     if body.description:
         row.description_pasted = True
     session.add(row)
     session.commit()
     return _to_job(row)
+
+
+@router.delete("/jobs/{job_id}", status_code=204)
+def delete_job(job_id: str, session: Session = Depends(get_session)) -> Response:
+    row = _get_job_row(session, job_id)
+    if row.package_status == "generating":
+        raise HTTPException(409, "Paket hazırlanırken ilan silinemez, bitmesini bekle.")
+    # Remember the URL so later searches don't bring the posting back.
+    session.merge(SeenPostingRow(url=row.url, seen_at=datetime.now(UTC)))
+    package = session.get(PackageRow, job_id)
+    if package:
+        session.delete(package)
+    session.delete(row)
+    session.commit()
+    shutil.rmtree(cv_pdf_path(job_id).parent, ignore_errors=True)
+    return Response(status_code=204)
 
 
 @router.post("/jobs/{job_id}/package", status_code=202)
@@ -168,9 +201,11 @@ def get_cv_pdf(job_id: str, session: Session = Depends(get_session)) -> FileResp
         raise HTTPException(404, "Bu ilan için henüz CV yok.")
     name = load_profile(session).full_name or "CV"
     # inline so the browser can preview it in an iframe; <a download> still saves it.
+    # no-cache: regenerating a package rewrites the PDF at the same URL.
     return FileResponse(
         path,
         media_type="application/pdf",
         filename=f"{name} - {job.company} CV.pdf",
         content_disposition_type="inline",
+        headers={"Cache-Control": "no-cache"},
     )

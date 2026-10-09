@@ -93,3 +93,14 @@ def test_frontend_is_served_with_spa_fallback(client, tmp_path, monkeypatch):
         assert client.get("/api/does-not-exist").status_code == 404
     finally:
         app.router.routes = original_routes
+
+
+def test_unknown_host_is_refused(client):
+    # A page whose domain resolves to 127.0.0.1 (DNS rebinding) sends its own Host header.
+    assert client.get("/api/profile", headers={"Host": "evil.example"}).status_code == 400
+    assert client.get("/api/profile", headers={"Host": "localhost:8000"}).status_code == 200
+
+
+def test_tailscale_host_is_allowed(with_token):
+    headers = {**VIA_TAILSCALE, "Host": "pc.tail1234.ts.net", "Authorization": "Bearer gizli-anahtar"}
+    assert with_token.get("/api/profile", headers=headers).status_code == 200

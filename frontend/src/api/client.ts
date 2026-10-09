@@ -1,4 +1,4 @@
-import type { AuthStatus, Job, Package, PackageStatus, Profile, Project, ProjectImportResult, ProjectInput, SearchRun, SearchSettings } from './types';
+import type { AuthStatus, CompanySuggestions, Job, Package, PackageStatus, Profile, Project, ProjectImportResult, ProjectInput, RoleSuggestions, SearchRun, SearchSettings } from './types';
 
 const BASE = '/api';
 
@@ -44,12 +44,13 @@ const json = (method: string, body?: unknown): RequestInit => ({
 export const api = {
   listJobs: () => request<Job[]>('/jobs'),
   getJob: (id: string) => request<Job>(`/jobs/${encodeURIComponent(id)}`),
-  addManualJob: async (input: { url: string; text?: string }) => {
+  addManualJob: async (input: { url?: string; text?: string }) => {
     const response = { status: 0 };
     const result = await request<Job>('/jobs/manual', json('POST', input), response);
     return { job: result, created: response.status === 201 };
   },
-  updateJob: (id: string, input: { status?: Job['status']; notes?: string; description?: string }) => request<Job>(`/jobs/${encodeURIComponent(id)}`, json('PATCH', input)),
+  updateJob: (id: string, input: { status?: Job['status']; notes?: string; description?: string; seen?: boolean }) => request<Job>(`/jobs/${encodeURIComponent(id)}`, json('PATCH', input)),
+  deleteJob: (id: string) => request<void>(`/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   createPackage: (id: string) => request<{ job_id: string; package_status: PackageStatus }>(`/jobs/${encodeURIComponent(id)}/package`, json('POST')),
   getPackage: (id: string) => request<Package>(`/jobs/${encodeURIComponent(id)}/package`),
   getProfile: () => request<Profile>('/profile'),
@@ -68,12 +69,17 @@ export const api = {
   },
   getSettings: () => request<SearchSettings>('/settings'),
   saveSettings: (settings: SearchSettings) => request<SearchSettings>('/settings', json('PUT', settings)),
+  suggestRoles: (description: string) => request<RoleSuggestions>('/settings/suggest-roles', json('POST', { description })),
+  discoverCompanies: (input: { description: string; target_roles: string[]; locations: string[]; remote_only: boolean }) => request<CompanySuggestions>('/settings/discover-companies', json('POST', input)),
   runSearch: () => request<SearchRun>('/search/run', json('POST')),
   getSearchRun: (id: string) => request<SearchRun>(`/search/runs/${encodeURIComponent(id)}`),
   getAuthStatus: () => request<AuthStatus>('/auth/status'),
   login: (token: string) => request<void>('/auth/login', json('POST', { token })),
   logout: () => request<void>('/auth/logout', json('POST')),
   listSearchRuns: (limit: number) => request<SearchRun[]>(`/search/runs?limit=${encodeURIComponent(String(limit))}`),
+  sendRunReport: (id: string) => request<{ sent_to: string }>(`/search/runs/${encodeURIComponent(id)}/report`, json('POST')),
 };
 
-export const getCvUrl = (jobId: string): string => `${BASE}/jobs/${encodeURIComponent(jobId)}/cv.pdf`;
+// version (the package's generated_at) changes the URL after a regeneration so an open iframe reloads.
+export const getCvUrl = (jobId: string, version?: string): string =>
+  `${BASE}/jobs/${encodeURIComponent(jobId)}/cv.pdf${version ? `?v=${encodeURIComponent(version)}` : ''}`;

@@ -5,11 +5,12 @@ from sqlmodel import Session
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 
 from app import auth
 from app.api import jobs, profile, projects, search, settings
-from app.config import get_settings
+from app.config import allowed_hosts, get_settings
 from app.db import get_engine, init_db
 from app.frontend import mount_frontend
 from app.llm.runner import LLMError, LLMNotConfiguredError
@@ -41,6 +42,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Added last so it runs first: a request for an unknown host never reaches the API.
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts(get_settings()))
 
 
 @app.exception_handler(LLMNotConfiguredError)

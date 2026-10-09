@@ -27,7 +27,8 @@ def client(tmp_path, monkeypatch):
     db._engine = None
     from app.main import app
 
-    with TestClient(app) as c:
+    # The app only answers known hosts; TestClient's default "testserver" isn't one.
+    with TestClient(app, base_url="http://127.0.0.1") as c:
         yield c
     db._engine = None
     config.get_settings.cache_clear()

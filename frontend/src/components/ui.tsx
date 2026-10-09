@@ -1,20 +1,28 @@
-import { ArrowUpRight, Check, CircleAlert, Clock3, LoaderCircle } from 'lucide-react'
+import { ArrowUpRight, BadgeCheck, Check, CircleAlert, CircleX, Clock3, LoaderCircle } from 'lucide-react'
 import type { HTMLAttributes, ReactNode } from 'react'
-import type { JobStatus, PackageStatus } from '../api'
+import type { EmploymentType, Job, JobStatus, PackageStatus } from '../api'
+import { BandPortal } from '../band'
 
 export const statusLabels: Record<JobStatus, string> = {
-  new: 'Yeni', applied: 'Başvuruldu', skipped: 'Geçildi', interview: 'Mülakat', rejected: 'Olumsuz', offer: 'Teklif',
+  new: 'İncelenecek', applied: 'Başvuruldu', skipped: 'Geçildi', interview: 'Mülakat', rejected: 'Olumsuz', offer: 'Teklif',
 }
 
 export const sourceLabels: Record<string, string> = {
   manual: 'Elle eklendi', greenhouse: 'Greenhouse', lever: 'Lever', ashby: 'Ashby',
   remoteok: 'RemoteOK', remotive: 'Remotive', arbeitnow: 'Arbeitnow', adzuna: 'Adzuna', email: 'E-posta alarmı',
+  web: 'Web araması',
+}
+
+export const employmentLabels: Record<EmploymentType, string> = {
+  full_time: 'Tam zamanlı', part_time: 'Yarı zamanlı', working_student: 'Working student', internship: 'Staj', contract: 'Sözleşmeli',
 }
 
 export function ScoreBadge({ score, large = false }: { score: number | null; large?: boolean }) {
   const tone = score == null ? 'muted' : score >= 80 ? 'high' : score >= 60 ? 'medium' : 'low'
+  const stroke = large ? 2.6 : 3.4
   return <span className={`score-badge ${tone} ${large ? 'large' : ''}`} aria-label={score == null ? 'Uyum puanı yok' : `Uyum puanı ${score}`}>
-    <strong>{score == null ? '—' : score}</strong>{large && <small>/ 100</small>}
+    <svg viewBox="0 0 36 36" aria-hidden="true"><circle className="score-track" cx="18" cy="18" r="15.9155" strokeWidth={stroke} /><circle className="score-value" cx="18" cy="18" r="15.9155" strokeWidth={stroke} strokeDasharray={`${Math.max(0, Math.min(100, score ?? 0))} 100`} transform="rotate(-90 18 18)" /></svg>
+    <strong>{score == null ? '—' : score}</strong>{large && <small>uyum</small>}
   </span>
 }
 
@@ -28,12 +36,19 @@ export function PackageBadge({ status }: { status: PackageStatus }) {
   return <span className={`package-badge ${status}`}>{icon}{label}</span>
 }
 
+/** Whether the posting still takes applications; nothing while that is unknown. */
+export function PostingBadge({ job }: { job: Pick<Job, 'posting_status' | 'verification_reason'> }) {
+  if (job.posting_status === 'unknown') return null
+  const open = job.posting_status === 'open'
+  return <span className={`posting-badge ${job.posting_status}`} title={job.verification_reason || undefined}>{open ? <BadgeCheck size={14} /> : <CircleX size={14} />}{open ? 'Açık' : 'Kapandı'}</span>
+}
+
 export function SectionTitle({ title, action }: { title: string; action?: ReactNode }) {
   return <div className="section-heading"><h2>{title}</h2>{action}</div>
 }
 
 export function PageHeading({ eyebrow, title, description, actions }: { eyebrow?: string; title: string; description?: string; actions?: ReactNode }) {
-  return <header className="page-heading"><div>{eyebrow && <p className="page-eyebrow">{eyebrow}</p>}<h1>{title}</h1>{description && <p className="page-description">{description}</p>}</div>{actions && <div className="page-actions">{actions}</div>}</header>
+  return <BandPortal><header className="page-heading"><div>{eyebrow && <p className="page-eyebrow">{eyebrow}</p>}<h1>{title}</h1>{description && <p className="page-description">{description}</p>}</div>{actions && <div className="page-actions">{actions}</div>}</header></BandPortal>
 }
 
 export function EmptyState({ icon, title, description, action }: { icon?: ReactNode; title: string; description: string; action?: ReactNode }) {

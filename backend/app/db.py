@@ -1,8 +1,8 @@
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
-from sqlalchemy import JSON, Column, inspect, text
+from sqlalchemy import JSON, Column, event, inspect, text
 from sqlmodel import Field, Session, SQLModel, create_engine
 
 from app.config import get_settings
@@ -36,6 +36,7 @@ class JobRow(SQLModel, table=True):
     location: str | None = None
     remote: bool | None = None
     seniority: str | None = None
+    employment_type: str | None = None
     posted_at: datetime | None = None
     found_at: datetime
     description: str = ""
@@ -47,6 +48,12 @@ class JobRow(SQLModel, table=True):
     package_status: str = "none"
     package_error: str | None = None
     notes: str = ""
+    # When the user first opened the job; until then a job from the latest run reads "Yeni".
+    seen_at: datetime | None = None
+    posting_status: str = "unknown"
+    last_verified_at: datetime | None = None
+    application_deadline: date | None = None
+    verification_reason: str | None = None
 
 
 class PackageRow(SQLModel, table=True):
@@ -63,18 +70,47 @@ class SearchRunRow(SQLModel, table=True):
     started_at: datetime = Field(index=True)
     finished_at: datetime | None = None
     jobs_found: int = 0
+    jobs_scored: int = 0
     jobs_new: int = 0
     jobs_above_threshold: int = 0
+    jobs_closed: int = 0
     error: str | None = None
+    # Job ids for the daily report: {"new": [...], "closed": [...], "reopened": [...]}.
+    summary: dict | None = Field(default=None, sa_column=Column(JSON))
 
 
 class SeenPostingRow(SQLModel, table=True):
-    """Postings that were scored but not kept, and alert emails already read (url
-    "email:<Message-ID>"), so later runs don't pay the LLM for them again."""
+    """Postings that were scored but not kept, so later runs don't pay the LLM for them
+    again. Older versions also marked alert emails here ("email:<Message-ID>"); those rows
+    are no longer read, see AlertEmailRow."""
 
     __tablename__ = "seen_posting"
     url: str = Field(primary_key=True)
     seen_at: datetime
+
+
+class AlertEmailRow(SQLModel, table=True):
+    """Job alert emails whose postings were extracted, so each email costs one LLM call."""
+
+    __tablename__ = "alert_email"
+    message_id: str = Field(primary_key=True)
+    read_at: datetime = Field(index=True)
+
+
+class AlertPostingRow(SQLModel, table=True):
+    """Every posting found in a job alert email, whatever the filters said then. Each run
+    filters them again, so a role added later still finds postings in emails already read."""
+
+    __tablename__ = "alert_posting"
+    url: str = Field(primary_key=True)
+    # The latest email that listed it; the posting is dropped together with that email.
+    message_id: str = Field(index=True)
+    company: str
+    title: str
+    location: str | None = None
+    remote: bool | None = None
+    received_at: datetime | None = None
+    description: str = ""
 
 
 _engine = None
@@ -86,8 +122,32 @@ def get_engine():
         url = get_settings().database_url
         if url.startswith("sqlite:///"):
             Path(url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
-        _engine = create_engine(url, connect_args={"check_same_thread": False})
+        # A search run and package building write from different threads: wait for the
+        # other writer instead of failing after SQLite's default 5 seconds.
+        _engine = create_engine(url, connect_args={"check_same_thread": False, "timeout": 30})
+        if url.startswith("sqlite"):
+            event.listen(_engine, "connect", _sqlite_pragmas)
     return _engine
+
+
+def _sqlite_pragmas(dbapi_connection, _record) -> None:
+    # WAL: readers never wait for the writer, and the writer doesn't wait for readers.
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.close()
+
+
+def _sql_default(column) -> str:
+    """Existing rows get the column's Python default, so non-null fields stay valid."""
+    default = column.default.arg if column.default is not None and column.default.is_scalar else None
+    if isinstance(default, bool):
+        return f" DEFAULT {int(default)}"
+    if isinstance(default, int | float):
+        return f" DEFAULT {default}"
+    if isinstance(default, str):
+        return " DEFAULT '" + default.replace("'", "''") + "'"
+    return ""
 
 
 def _add_missing_columns(engine) -> None:
@@ -102,7 +162,12 @@ def _add_missing_columns(engine) -> None:
             for column in table.columns:
                 if column.name not in existing:
                     col_type = column.type.compile(engine.dialect)
-                    conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type}'))
+                    conn.execute(
+                        text(
+                            f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type}'
+                            + _sql_default(column)
+                        )
+                    )
 
 
 def init_db() -> None:

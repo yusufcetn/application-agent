@@ -4,7 +4,9 @@
   "started_at": "2026-09-22T06:00:00Z",
   "finished_at": "2026-09-22T06:04:10Z",
   "jobs_found": 57,
+  "jobs_scored": 30,
   "jobs_new": 12,
   "jobs_above_threshold": 5,
+  "jobs_closed": 1,
   "error": null
 }

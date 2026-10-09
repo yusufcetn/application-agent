@@ -27,9 +27,16 @@ test('manual job creation rejects unsafe URLs and supports status updates', asyn
   assert.equal((await mockApi.addManualJob({ url: 'https://example.com/jobs/123' })).created, false)
   assert.equal(added.status, 'new')
   assert.equal(added.package_status, 'none')
+  assert.equal(added.posting_status, 'unknown')
+  assert.equal((await mockApi.getJob('job_demo_6')).posting_status, 'closed')
   assert.equal((await mockApi.listJobs())[0].id, added.id)
   assert.equal((await mockApi.updateJob(added.id, { status: 'applied', notes: 'Başvuru yapıldı' })).status, 'applied')
   assert.equal((await mockApi.getJob(added.id)).notes, 'Başvuru yapıldı')
+  await assert.rejects(mockApi.addManualJob({}), /bağlantısı veya ilan metni/)
+  const textOnly = await mockApi.addManualJob({ text: 'Sadece metinle ilan' })
+  assert.equal(textOnly.created, true)
+  assert.ok(textOnly.job.url.startsWith('manual:job_demo_'))
+  await mockApi.deleteJob(textOnly.job.id)
 })
 
 test('package generation moves a demo job from generating to ready', async () => {
@@ -95,4 +102,12 @@ test('old persisted jobs and settings are normalized without changing mock stora
   assert.equal((await mockApi.getJob('old')).package_error, null)
   assert.equal((await mockApi.getSettings()).sources.email_alerts, false)
   assert.ok(storage.has('apply-agent-demo:jobs'))
+})
+
+test('demo settings assistant reports unavailable research without touching storage', async () => {
+  await assert.rejects(mockApi.suggestRoles('Backend developer'), /Demo modunda.*dil modeli/)
+  assert.deepEqual(await mockApi.discoverCompanies({ description: 'climate tech', target_roles: [], locations: [], remote_only: false }), {
+    companies: [], warnings: ['Demo modunda internet araştırması yapılmaz. Gerçek araştırma için canlı bağlantıya geç.'],
+  })
+  assert.equal(storage.size, 0)
 })

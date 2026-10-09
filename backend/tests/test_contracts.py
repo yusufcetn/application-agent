@@ -1,6 +1,6 @@
 """The example JSON files are the API contract; our models must accept them unchanged."""
 
-from app.schemas import Profile, Project, SearchSettings
+from app.schemas import Job, Profile, Project, SearchSettings
 from tests.conftest import load_example
 
 
@@ -17,3 +17,8 @@ def test_project_example_roundtrip():
 def test_settings_example_roundtrip():
     data = load_example("settings")
     assert SearchSettings.model_validate(data).model_dump(mode="json") == data
+
+
+def test_job_example_roundtrip():
+    data = load_example("job")
+    assert Job.model_validate(data).model_dump(mode="json") == data

@@ -1,7 +1,7 @@
 # Backend
 
-FastAPI + SQLite. LLM çağrıları yerelde oturum açılmış **Claude Code** veya **Codex** CLI
-üzerinden yapılır; API anahtarı gerekmez.
+FastAPI + SQLite. LLM çağrıları yerelde oturum açılmış **Antigravity** (varsayılan), **Claude Code**
+veya **Codex** CLI üzerinden yapılır; API anahtarı gerekmez.
 
 ## Kurulum
 
@@ -14,10 +14,12 @@ uv run playwright install chromium
 Chromium, CV'yi PDF'e çevirmek ve JavaScript ile yüklenen ilan sayfalarını okumak için kullanılıyor.
 
 Proje kökündeki `.env.example` dosyasını `.env` adıyla kopyala ve `LLM_PROVIDER` değerini seç
-(`claude` veya `codex`). [uv](https://docs.astral.sh/uv/) macOS ve Windows'ta aynı şekilde çalışır.
+(`antigravity`, `claude` veya `codex`). [uv](https://docs.astral.sh/uv/) macOS ve Windows'ta aynı şekilde çalışır.
 
 Seçtiğin CLI'da oturum açık olmalı:
 
+- Antigravity: `agy` çalıştırıp Google hesabınla giriş yap. Varsayılan model `gemini-3.8-flash-medium`,
+  diğerleri için `agy models`.
 - Claude Code: `claude` çalıştırıp `/login`
 - Codex: `codex login`
 
@@ -33,6 +35,30 @@ uv run uvicorn app.main:app --reload --port 8000
 ```
 
 API dokümantasyonu: http://localhost:8000/docs
+
+## Ayarlar asistanı
+
+Ayarlar ekranında aradığın işi anlatarak Türkçe/İngilizce pozisyon önerileri alabilir,
+şirket temasını yazarak Greenhouse, Lever ve Ashby kariyer adreslerini araştırabilirsin.
+Pozisyon önerileri mevcut LLM sağlayıcısını kullanır; şirket araştırması aynı sağlayıcının
+web araçlarını ve `WEB_SEARCH_MODEL` / `WEB_SEARCH_TIMEOUT_SECONDS` ayarlarını kullanır.
+Şirket araştırması, ilan taramasındaki Web araması anahtarından bağımsız çalışır.
+
+`POST /api/settings/suggest-roles` girdisi `{ "description": "Python backend" }`,
+çıktısı `{ "target_roles": ["Python Developer", "Backend Developer"] }` biçimindedir.
+`POST /api/settings/discover-companies`, `description` yanında isteğe bağlı
+`target_roles`, `locations`, `remote_only` alanlarını alır. Çıktı `companies`
+(`name`, `source`, `slug`, `url`, `reason`) ve `warnings` listeleridir.
+
+Şirket kısa adları modelin döndürdüğü desteklenen ATS adreslerinden çıkarılır ve
+sabit ATS API adresleri üzerinden doğrulanır. Yönlendirmeler izlenmez. Lever boş
+listesi var olmayan hesaplardan ayırt edilemediğinden önerilere alınmaz; Greenhouse
+ve Ashby için geçerli boş ilan listeleri kabul edilir. Doğrulama kariyer adresinin
+erişilebilirliğini gösterir; sektör/konum açıklamaları araştırma önerileridir ve
+şirketin uygun açık pozisyonu olduğunu garanti etmez. Liste tüm şirketleri kapsamaz.
+
+Öneriler ayarları kendiliğinden kaydetmez. İstediklerini seçip ekledikten sonra
+**Kaydet** düğmesini kullan. Demo modunda gerçek model veya internet araştırması yapılmaz.
 
 ## Demo veri (LLM olmadan arayüz testi)
 
@@ -71,19 +97,23 @@ Testler CLI'ları gerçekten çağırmaz; sahte script'lerle çalışır.
 | `app/schemas.py` | API sözleşmesi modelleri (`contracts/examples` ile birebir) |
 | `app/db.py` | SQLite tabloları |
 | `app/api/` | HTTP endpoint'leri |
-| `app/llm/runner.py` | Claude Code / Codex CLI ile JSON şemalı LLM çağrısı |
+| `app/llm/runner.py` | Antigravity / Claude Code / Codex CLI ile JSON şemalı LLM çağrısı |
 | `app/llm/profile_import.py` | CV dosyası → profil |
 | `app/llm/job_extract.py` | İlan sayfası metni → ilan bilgileri |
 | `app/llm/tailor.py` | İlana özel CV, ön yazı, cevaplar, puan (+ uydurma bilgi ayıklama) |
 | `app/jobs/fetch.py` | İlan sayfasını indirme (HTTP, gerekirse Chromium) |
 | `app/render/` | CV HTML şablonu ve PDF üretimi |
 | `app/services/packages.py` | Başvuru paketi üretim akışı (arka planda çalışır) |
-| `app/sources/` | İlan kaynakları (Greenhouse, Lever, Ashby, RemoteOK, Remotive, Arbeitnow, Adzuna) |
+| `app/sources/` | İlan kaynakları (Greenhouse, Lever, Ashby, RemoteOK, Remotive, Arbeitnow, Adzuna, web araması) |
 | `app/search/filters.py` | Ücretsiz ön filtre ve ilgi sıralaması |
 | `app/llm/score.py` | İlanları toplu halde puanlama |
 | `app/search/service.py` | Tarama akışı: kaynaklar → filtre → puan → kayıt → paket |
 | `app/search/scheduler.py` | Günlük otomatik tarama |
 | `app/sources/email_alerts.py` | İş alarmı e-postalarını IMAP ile okuma |
+| `app/llm/web_discovery.py`, `app/sources/web_search.py` | Web'de arayıp açık ilan bulan LLM ajanı |
+| `app/search/verify.py` | Kayıtlı ilan hâlâ açık mı (HTTP durumu, JobPosting `validThrough`, "kapandı" ifadeleri) |
+| `app/search/report.py`, `app/services/mailer.py` | Günlük rapor e-postası (SMTP) |
+| `scripts/windows_autostart.ps1` | Backend'i Windows oturumu açılınca başlatan görev |
 | `app/llm/alert_extract.py` | Alarm e-postasındaki ilanları çıkarma |
 
 ## Otomatik tarama

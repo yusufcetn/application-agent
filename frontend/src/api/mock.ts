@@ -1,4 +1,4 @@
-import type { ProjectImportResult, AuthStatus, Job, Package, Profile, Project, ProjectInput, SearchRun, SearchSettings } from './types';
+import type { ProjectImportResult, AuthStatus, CompanySuggestions, Job, Package, Profile, Project, ProjectInput, RoleSuggestions, SearchRun, SearchSettings } from './types';
 
 const now = () => new Date().toISOString();
 const profileSeed: Profile = {
@@ -13,7 +13,15 @@ const profileSeed: Profile = {
   certifications: [{ name: 'AWS Cloud Practitioner', issuer: 'Amazon', date: '2024-05' }], updated_at: '2026-09-22T10:00:00Z',
 };
 const projectSeed: Project[] = [{ id: 'prj_demo', name: 'Demo Apply Agent', role: 'Backend & LLM', summary: 'İş ilanları için demo başvuru paketi hazırlama projesi.', bullets: ['İlanları sınıflandıran demo tarayıcı geliştirdim.', 'CV eşleşme analizi oluşturdum.'], tech: ['Python', 'FastAPI', 'React'], links: [{ label: 'GitHub', url: 'https://github.com/demo/apply-agent' }], start_date: '2026-01', end_date: null, featured: true }];
-const jobSeed: Job[] = [
+type SeedJob = Omit<Job, 'employment_type' | 'posting_status' | 'last_verified_at' | 'application_deadline' | 'verification_reason' | 'seen_at'>;
+const jobDefaults = { employment_type: null, posting_status: 'unknown', last_verified_at: null, application_deadline: null, verification_reason: null, seen_at: null } as const;
+const jobVerification: Record<string, Partial<Job>> = {
+  job_demo_1: { employment_type: 'full_time', posting_status: 'open', last_verified_at: '2026-09-23T06:02:00Z', application_deadline: '2026-10-15', verification_reason: 'Şirketin ilan listesinde yayında.' },
+  job_demo_6: { posting_status: 'closed', last_verified_at: '2026-09-23T06:03:00Z', verification_reason: 'Sayfada “no longer accepting applications” yazıyor.' },
+  job_demo_8: { employment_type: 'part_time' },
+};
+const withJobDefaults = (job: SeedJob | Job): Job => ({ ...jobDefaults, ...jobVerification[job.id], ...job });
+const jobSeed: Job[] = ([
   { id: 'job_demo_1', source: 'lever', url: 'https://jobs.lever.co/demo/engineer', company: 'Demo Teknoloji', title: 'Backend Engineer', location: 'Remote (EMEA)', remote: true, seniority: 'mid', posted_at: '2026-09-20T00:00:00Z', found_at: '2026-09-22T06:00:00Z', description: 'Demo ilan: Python ve FastAPI ile servis geliştirme.', score: 84, score_reason: 'Demo eşleşme puanı.', status: 'new', package_status: 'ready', package_error: null, notes: '' },
   { id: 'job_demo_2', source: 'greenhouse', url: 'https://boards.greenhouse.io/demo/jobs/456', company: 'Örnek Yazılım', title: 'Python Developer', location: 'İstanbul, Türkiye', remote: false, seniority: 'junior', posted_at: '2026-09-18T00:00:00Z', found_at: '2026-09-22T06:10:00Z', description: 'Demo ilan: Python uygulamaları ve PostgreSQL.', score: 72, score_reason: 'Demo eşleşme puanı.', status: 'interview', package_status: 'none', package_error: null, notes: 'Demo takip notu' },
   { id: 'job_demo_3', source: 'ashby', url: 'https://jobs.ashbyhq.com/demo/pm', company: 'Örnek Ürün', title: 'Platform Engineer', location: null, remote: null, seniority: 'senior', posted_at: null, found_at: '2026-09-21T12:00:00Z', description: 'Demo ilan: platform araçları.', score: null, score_reason: null, status: 'applied', package_status: 'generating', package_error: null, notes: '' },
@@ -22,13 +30,13 @@ const jobSeed: Job[] = [
   { id: 'job_demo_6', source: 'arbeitnow', url: 'https://www.arbeitnow.com/view/demo-engineer', company: 'Demo Systems', title: 'API Engineer', location: 'Berlin / Remote', remote: true, seniority: 'senior', posted_at: '2026-09-19T10:00:00Z', found_at: '2026-09-22T06:30:00Z', description: 'Demo ilan: API tasarımı ve veri işleme.', score: 69, score_reason: 'Demo eşleşme puanı.', status: 'new', package_status: 'none', package_error: null, notes: '' },
   { id: 'job_demo_7', source: 'adzuna', url: 'https://www.adzuna.com/demo/backend-role', company: 'Demo Labs', title: 'Backend Developer', location: 'Remote (Europe)', remote: true, seniority: 'junior', posted_at: '2026-09-18T08:00:00Z', found_at: '2026-09-22T06:35:00Z', description: 'Demo ilan: backend uygulama geliştirme.', score: 74, score_reason: 'Demo eşleşme puanı.', status: 'new', package_status: 'none', package_error: null, notes: '' },
   { id: 'job_demo_8', source: 'email', url: 'https://jobs.example.com/email-role', company: 'Email Örnek', title: 'Email Alert Engineer', location: 'Remote', remote: true, seniority: 'mid', posted_at: '2026-09-21T10:00:00Z', found_at: '2026-09-22T06:40:00Z', description: 'Demo email uyarı ilanı.', score: 88, score_reason: 'Demo eşleşme puanı.', status: 'new', package_status: 'none', package_error: null, notes: '' },
-];
+] satisfies SeedJob[]).map(withJobDefaults);
 const settingsSeed: SearchSettings = {
   target_roles: ['Backend Developer', 'Python Developer'], locations: ['İstanbul', 'Remote'], remote_only: false,
   seniority: ['junior', 'mid'], keywords_exclude: ['Senior Staff', 'Principal'], min_score: 70,
   auto_package: true, cv_language: 'auto',
-  sources: { greenhouse: ['demo-company'], lever: ['demo-company'], ashby: [], remoteok: true, remotive: true, arbeitnow: true, adzuna: false, email_alerts: true },
-  schedule_cron: '0 8 * * *',
+  sources: { greenhouse: ['demo-company'], lever: ['demo-company'], ashby: [], remoteok: true, remotive: true, arbeitnow: true, adzuna: false, email_alerts: true, web_search: true },
+  schedule_cron: '0 8 * * *', daily_report: true,
 };
 const packageSeed: Package = {
   job_id: 'job_demo_1', generated_at: '2026-09-22T06:05:00Z', cv_pdf_url: '/sample-cv.pdf', cv_language: 'en',
@@ -42,10 +50,10 @@ function read<T>(key: string, seed: T): T {
     const value = localStorage.getItem(`apply-agent-demo:${key}`);
     if (!value) return structuredClone(seed);
     const parsed = JSON.parse(value) as T;
-    if (key === 'jobs' && Array.isArray(parsed)) return parsed.map((job: Job) => ({ ...job, package_error: job.package_error ?? null })) as T;
+    if (key === 'jobs' && Array.isArray(parsed)) return parsed.map((job: Job) => withJobDefaults({ ...job, package_error: job.package_error ?? null })) as T;
     if (key === 'settings' && parsed && typeof parsed === 'object') {
       const sources = (parsed as unknown as SearchSettings).sources;
-      return { ...(parsed as object), sources: { ...sources, email_alerts: sources.email_alerts ?? false } } as T;
+      return { daily_report: false, ...(parsed as object), sources: { ...sources, email_alerts: sources.email_alerts ?? false, web_search: sources.web_search ?? false } } as T;
     }
     return parsed;
   }
@@ -61,19 +69,34 @@ const clone = <T>(value: T): T => structuredClone(value);
 export const mockApi = {
   async listJobs(): Promise<Job[]> { return clone(state('jobs', jobSeed).map(job => ({ ...job, description: '' }))); },
   async getJob(id: string): Promise<Job> { const job = state('jobs', jobSeed).find(item => item.id === id); if (!job) throw missing('İş ilanı'); return clone(job); },
-  async addManualJob(input: { url: string; text?: string }): Promise<{ job: Job; created: boolean }> {
-    let parsed: URL;
-    try { parsed = new URL(input.url); } catch { throw new Error('Geçerli bir ilan URL adresi girin.'); }
-    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error('İlan adresi http veya https ile başlamalıdır.');
-    const jobs = state('jobs', jobSeed); const existing = jobs.find(item => item.url === parsed.href);
-    if (existing) return { job: clone(existing), created: false };
+  async addManualJob(input: { url?: string; text?: string }): Promise<{ job: Job; created: boolean }> {
+    const rawUrl = input.url?.trim() || '';
+    const rawText = input.text?.trim() || '';
+    if (!rawUrl && !rawText) throw new Error('İlan bağlantısı veya ilan metni girmelisiniz.');
+    let finalUrl = '';
+    if (rawUrl) {
+      let parsed: URL;
+      try { parsed = new URL(rawUrl); } catch { throw new Error('Geçerli bir ilan URL adresi girin.'); }
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error('İlan adresi http veya https ile başlamalıdır.');
+      finalUrl = parsed.href;
+      const jobs = state('jobs', jobSeed); const existing = jobs.find(item => item.url === finalUrl);
+      if (existing) return { job: clone(existing), created: false };
+    }
+    const jobs = state('jobs', jobSeed);
     const id = `job_demo_${Date.now()}`;
-    const job: Job = { id, source: 'manual', url: parsed.href, company: 'Demo manuel ilan', title: 'İncelenecek demo ilan', location: null, remote: null, seniority: null, posted_at: null, found_at: now(), description: input.text ?? '', score: null, score_reason: null, status: 'new', package_status: 'none', package_error: null, notes: '' };
+    const job: Job = { id, source: 'manual', url: finalUrl || `manual:${id}`, company: 'Demo manuel ilan', title: 'İncelenecek demo ilan', location: null, remote: null, seniority: null, posted_at: null, found_at: now(), description: input.text ?? '', score: null, score_reason: null, status: 'new', package_status: 'none', package_error: null, notes: '', ...jobDefaults };
     jobs.unshift(job); write('jobs', jobs); return { job: clone(job), created: true };
   },
-  async updateJob(id: string, input: { status?: Job['status']; notes?: string; description?: string }): Promise<Job> {
+  async updateJob(id: string, input: { status?: Job['status']; notes?: string; description?: string; seen?: boolean }): Promise<Job> {
     const jobs = state('jobs', jobSeed); const index = jobs.findIndex(item => item.id === id); if (index < 0) throw missing('İş ilanı');
-    jobs[index] = { ...jobs[index], ...input }; write('jobs', jobs); return clone(jobs[index]);
+    const { seen, ...fields } = input; const current = jobs[index];
+    const seen_at = seen === undefined ? current.seen_at ?? null : seen ? current.seen_at ?? now() : null;
+    jobs[index] = { ...current, ...fields, seen_at }; write('jobs', jobs); return clone(jobs[index]);
+  },
+  async deleteJob(id: string): Promise<void> {
+    const jobs = state('jobs', jobSeed); const job = jobs.find(item => item.id === id); if (!job) throw missing('İş ilanı');
+    if (job.package_status === 'generating') throw new Error('Paket hazırlanırken ilan silinemez, bitmesini bekle.');
+    write('jobs', jobs.filter(item => item.id !== id));
   },
   async createPackage(id: string): Promise<{ job_id: string; package_status: Job['package_status'] }> {
     const jobs = state('jobs', jobSeed); const job = jobs.find(item => item.id === id); if (!job) throw missing('İş ilanı');
@@ -118,14 +141,19 @@ export const mockApi = {
   },
   async getSettings(): Promise<SearchSettings> { return clone(state('settings', settingsSeed)); },
   async saveSettings(settings: SearchSettings): Promise<SearchSettings> { write('settings', settings); return clone(settings); },
+  async suggestRoles(_description: string): Promise<RoleSuggestions> { throw new Error('Demo modunda pozisyon önerisi için bir dil modeli kullanılmaz. Gerçek öneriler için canlı bağlantıya geç.'); },
+  async discoverCompanies(_input: { description: string; target_roles: string[]; locations: string[]; remote_only: boolean }): Promise<CompanySuggestions> {
+    return { companies: [], warnings: ['Demo modunda internet araştırması yapılmaz. Gerçek araştırma için canlı bağlantıya geç.'] };
+  },
   async runSearch(): Promise<SearchRun> {
-    const stamp = now(); const run: SearchRun = { id: `run_demo_${Date.now()}`, status: 'done', started_at: stamp, finished_at: stamp, jobs_found: 0, jobs_new: 0, jobs_above_threshold: 0, error: null };
+    const stamp = now(); const run: SearchRun = { id: `run_demo_${Date.now()}`, status: 'done', started_at: stamp, finished_at: stamp, jobs_found: 0, jobs_scored: 0, jobs_new: 0, jobs_above_threshold: 0, jobs_closed: 0, error: null };
     const runs = state<SearchRun[]>('search_runs', []); runs.unshift(run); write('search_runs', runs); return clone(run);
   },
   async getSearchRun(id: string): Promise<SearchRun> { const run = state<SearchRun[]>('search_runs', []).find(item => item.id === id); if (!run) throw missing('Arama çalışması'); return clone(run); },
   async getAuthStatus(): Promise<AuthStatus> { return { token_required: false, authenticated: true }; },
   async login(_token: string): Promise<void> {},
   async logout(): Promise<void> {},
+  async sendRunReport(_id: string): Promise<{ sent_to: string }> { return { sent_to: 'demo@example.com' }; },
   async listSearchRuns(limit: number): Promise<SearchRun[]> { return clone(state<SearchRun[]>('search_runs', []).sort((a, b) => b.started_at.localeCompare(a.started_at)).slice(0, Math.max(0, limit))); },
 };
 

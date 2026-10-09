@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import httpx
 
@@ -19,6 +19,12 @@ class RawJob:
     remote: bool | None
     posted_at: datetime | None
     description: str
+    employment_type: str | None = None
+    # Set when the source itself shows whether the posting is open (a board lists it,
+    # or the web agent opened the page).
+    posting_status: str = "unknown"
+    verification_reason: str | None = None
+    application_deadline: date | None = None
 
 
 class JobSource(ABC):

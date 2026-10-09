@@ -139,13 +139,15 @@ Tüm yollar `/api` ile başlar. JSON, tarihler ISO 8601 (UTC). Hata formatı:
 | GET | `/jobs?status=&min_score=&q=` | İlan listesi | `job.json[]` (description hariç olabilir) |
 | GET | `/jobs/{id}` | İlan detayı | `job.json` |
 | POST | `/jobs/manual` | Link ile ilan ekle | `{ "url": "..." }` → `job.json` |
-| PATCH | `/jobs/{id}` | Durum/not/ilan metni güncelle | `{ "status"?: ..., "notes"?: ..., "description"?: ... }` → `job.json` |
+| PATCH | `/jobs/{id}` | Durum/not/ilan metni güncelle, açıldı işaretle | `{ "status"?: ..., "notes"?: ..., "description"?: ..., "seen"?: bool }` → `job.json` |
+| DELETE | `/jobs/{id}` | İlanı, paketini ve CV'sini sil; link bir daha taramaya girmez | → 204 (paket hazırlanırken 409) |
 | POST | `/jobs/{id}/package` | Paket üret (asenkron) | → 202 `{ "job_id": "...", "package_status": "generating" }` |
 | GET | `/jobs/{id}/package` | Paketi getir | `package.json` (404 = henüz yok) |
 | GET | `/jobs/{id}/cv.pdf` | Uyarlanmış CV | `application/pdf` |
 | POST | `/search/run` | İlan taramasını başlat | → 202 `search_run.json` |
 | GET | `/search/runs?limit=` | Son taramalar (yeniden eskiye) | `search_run.json[]` |
 | GET | `/search/runs/{id}` | Tarama durumu | `search_run.json` |
+| POST | `/search/runs/{id}/report` | Taramanın raporunu e-postayla gönder | → `{ "sent_to": "..." }` (e-posta ayarı yoksa 409) |
 | GET | `/auth/status` | Erişim anahtarı gerekli mi, giriş yapılmış mı | `{ "token_required", "authenticated" }` |
 | POST | `/auth/login` | Anahtarla giriş (çerez) | `{ "token": "..." }` → 204 |
 | POST | `/auth/logout` | Çıkış | → 204 |
@@ -156,7 +158,10 @@ Tüm yollar `/api` ile başlar. JSON, tarihler ISO 8601 (UTC). Hata formatı:
 - `job.status`: `new` · `applied` · `skipped` · `interview` · `rejected` · `offer`
 - `job.package_status`: `none` · `generating` · `ready` · `failed`
 - `search_run.status`: `running` · `done` · `failed`
-- `job.source`: `manual` · `greenhouse` · `lever` · `ashby` · `remoteok` · `remotive` · `arbeitnow` · `adzuna` · `email`
+- `job.source`: `manual` · `greenhouse` · `lever` · `ashby` · `remoteok` · `remotive` · `arbeitnow` · `adzuna` · `email` · `web`
+- `search_run.jobs_scored`: tarama sürerken her puanlanan gruptan sonra artar; ilanlar da grup grup kaydedilir, `GET /jobs` tarama bitmeden yenileri gösterir.
+- `job.posting_status`: `open` · `closed` · `unknown` (ilan hâlâ başvuru alıyor mu; `verification_reason` sebebi, `last_verified_at` son kontrol)
+- `job.employment_type`: `full_time` · `part_time` · `working_student` · `internship` · `contract` · `null`
 
 **Ayrıntılar**
 - `GET /profile` ve `GET /settings` veri yokken boş/varsayılan nesne döner (404 değil).
@@ -167,6 +172,8 @@ Tüm yollar `/api` ile başlar. JSON, tarihler ISO 8601 (UTC). Hata formatı:
 - `POST /projects/import`: aynı `id`'ye ya da aynı ada (büyük/küçük harf farkı gözetmeden) sahip proje varsa güncellenir,
   yoksa eklenir; dosyadaki `id` korunur. Hatalı dosya ya da kayıt diğerlerini durdurmaz, `errors` içinde Türkçe sebebiyle döner.
 - `POST /jobs/{id}/package` profil boşken 409 döner.
+- `job.seen_at`: kullanıcının ilanı ilk açtığı an, açılmadıysa `null`. Arayüz ilanı açınca `PATCH /jobs/{id}` ile
+  `{"seen": true}` gönderir; "Yeni" rozeti yalnızca son taramadan gelen, açılmamış ve durumu `new` olan ilanlarda görünür.
 - `package_status: failed` olduğunda `job.package_error` kullanıcıya gösterilecek Türkçe sebebi içerir, aksi halde `null`.
   E-posta alarmından gelen ilanlarda sadece kısa bir özet olur; paket üretilirken ilan sayfası okunur. Sayfa okunamazsa
   (ör. LinkedIn giriş ekranı) hata "İlanın tam metni okunamadı..." olur. Arayüz o zaman ilan metnini yapıştırma alanı

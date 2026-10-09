@@ -41,8 +41,8 @@ def _fake_cli(monkeypatch, provider: str, handler) -> list:
     Works on every OS; the binary itself is Python so it always resolves."""
     calls = []
 
-    def fake_run(cmd, stdin, cwd):
-        calls.append({"cmd": cmd, "stdin": stdin})
+    def fake_run(cmd, stdin, cwd, timeout=None):
+        calls.append({"cmd": cmd, "stdin": stdin, "timeout": timeout})
         code, stdout = handler(cmd)
         return subprocess.CompletedProcess(cmd, code, stdout=stdout, stderr="boom")
 
@@ -92,6 +92,106 @@ def test_import_via_codex_cli(client, monkeypatch):
     res = client.post("/api/profile/import", files={"file": ("cv.md", b"Ali Veli", "text/plain")})
     assert res.status_code == 200, res.text
     assert res.json()["skills"]["tools"] == ["Docker"]
+
+
+def _agy_result(result: dict) -> str:
+    init = {"event": "init", "init": {"model": "gemini-3.8-flash-medium"}}
+    return "\n".join(json.dumps(event) for event in (init, {"event": "result", "result": result}))
+
+
+def test_import_via_antigravity_cli(client, monkeypatch):
+    out = _agy_result({"status": "SUCCESS", "response": "", "structured_output": EXTRACTED})
+    calls = _fake_cli(monkeypatch, "antigravity", lambda cmd: (0, out))
+
+    cv = "Ali Veli — Çağlayan, İstanbul".encode()
+    res = client.post("/api/profile/import", files={"file": ("cv.txt", cv, "text/plain")})
+    assert res.status_code == 200, res.text
+    message = json.loads(calls[0]["stdin"])
+    assert message["event"] == "user"
+    assert "Çağlayan" in message["message"]["content"]
+    cmd = calls[0]["cmd"]
+    assert cmd[cmd.index("--input-format") + 1] == "stream-json"
+    assert cmd[cmd.index("--model") + 1] == "gemini-3.8-flash-medium"
+    assert res.json()["full_name"] == "Ali Veli"
+
+
+def test_antigravity_error_returns_502(client, monkeypatch):
+    out = _agy_result({"status": "ERROR", "response": "", "error": "Eligibility check failed"})
+    _fake_cli(monkeypatch, "antigravity", lambda cmd: (1, out))
+
+    res = client.post("/api/profile/import", files={"file": ("cv.txt", b"x", "text/plain")})
+    assert res.status_code == 502
+    assert "Eligibility check failed" in res.json()["detail"]
+
+
+def test_antigravity_retries_once_when_model_is_busy(monkeypatch):
+    busy = _agy_result({"status": "ERROR", "error": "UNAVAILABLE (code 503): No capacity"})
+    done = _agy_result({"status": "SUCCESS", "response": '{"full_name": "Ali Veli"}'})
+    replies = [busy, done]
+    calls = _fake_cli(monkeypatch, "antigravity", lambda cmd: (0, replies.pop(0)))
+
+    assert runner.run_structured("s", "p", Profile).full_name == "Ali Veli"
+    assert len(calls) == 2
+    # Calls without web access tell the agent not to use tools.
+    assert "Do not use any tools" in json.loads(calls[0]["stdin"])["message"]["content"]
+
+
+def test_web_mode_turns_on_each_cli_s_search_tools(monkeypatch):
+    agy = _fake_cli(monkeypatch, "antigravity", lambda cmd: (0, _agy_result({"status": "SUCCESS", "structured_output": {}})))
+    runner.run_structured("s", "p", Profile, web=True, timeout=900)
+    content = json.loads(agy[0]["stdin"])["message"]["content"]
+    assert "Do not use any tools" not in content and "Never run terminal commands" in content
+    assert agy[0]["timeout"] == 900
+
+    claude = _fake_cli(monkeypatch, "claude", lambda cmd: (0, json.dumps({"structured_output": {}})))
+    runner.run_structured("s", "p", Profile, web=True)
+    cmd = claude[0]["cmd"]
+    assert cmd[cmd.index("--tools") + 1] == "WebSearch,WebFetch"
+
+    def codex(cmd):
+        Path(cmd[cmd.index("--output-last-message") + 1]).write_text("{}", encoding="utf-8")
+        return 0, ""
+
+    calls = _fake_cli(monkeypatch, "codex", codex)
+    runner.run_structured("s", "p", Profile, web=True)
+    cmd = calls[0]["cmd"]
+    assert cmd.index("--search") < cmd.index("exec")
+
+
+DENIED = 'no output produced - a tool required the "command" permission that headless mode cannot prompt for, so it was auto-denied.'
+
+
+def test_antigravity_asks_again_when_a_denied_tool_ended_the_turn(monkeypatch):
+    empty = _agy_result({"status": "SUCCESS", "response": ""})
+    done = _agy_result({"status": "SUCCESS", "structured_output": {"full_name": "Ali Veli"}})
+    _fake_cli(monkeypatch, "antigravity", lambda cmd: (0, done))
+    replies = [(empty, DENIED), (done, "")]
+    calls = []
+
+    def fake_run(cmd, stdin, cwd, timeout=None):
+        calls.append(stdin)
+        stdout, stderr = replies.pop(0)
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr=stderr)
+
+    monkeypatch.setattr(runner, "_run", fake_run)
+    assert runner.run_structured("s", "p", Profile).full_name == "Ali Veli"
+    assert len(calls) == 2
+    assert "tried a tool that isn't available" in json.loads(calls[1])["message"]["content"]
+
+
+def test_antigravity_explains_an_empty_answer(monkeypatch):
+    out = _agy_result({"status": "SUCCESS", "response": ""})
+    _fake_cli(monkeypatch, "antigravity", lambda cmd: (0, out))
+    calls = []
+
+    def fake_run(cmd, stdin, cwd, timeout=None):
+        calls.append(stdin)
+        return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr=DENIED)
+
+    monkeypatch.setattr(runner, "_run", fake_run)
+    with pytest.raises(LLMError, match='"command" permission'):
+        runner.run_structured("s", "p", Profile, web=True)
+    assert len(calls) == 2  # asked once more before giving up
 
 
 def test_cli_error_returns_502(client, monkeypatch):

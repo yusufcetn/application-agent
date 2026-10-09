@@ -5,10 +5,10 @@ import json
 from pydantic import BaseModel
 
 from app.llm.runner import run_structured
-from app.schemas import Profile, Project, Seniority
+from app.schemas import EmploymentType, Profile, Project, Seniority
 from app.sources.base import RawJob
 
-BATCH_SIZE = 8
+BATCH_SIZE = 10
 DESCRIPTION_CHARS = 3000
 
 SYSTEM_PROMPT = """\
@@ -28,7 +28,9 @@ location doesn't fit, score it at most 30 and say so.
 alert emails). Score them from what is there (title, company, location, snippet) and \
 say in score_reason that the full posting wasn't available.
 - seniority: the level the posting targets (intern, junior, mid, senior, lead), or null \
-if unclear.
+if unclear. Student roles (working student, part-time student, "aday mühendis") are intern.
+- employment_type: full_time, part_time, working_student, internship or contract when the \
+posting says so, otherwise null.
 
 Return exactly one result per posting.
 """
@@ -39,6 +41,7 @@ class JobScore(BaseModel):
     score: int
     score_reason: str
     seniority: Seniority | None = None
+    employment_type: EmploymentType | None = None
 
 
 class ScoreBatch(BaseModel):

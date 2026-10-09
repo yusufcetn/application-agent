@@ -7,13 +7,19 @@
   "location": "Remote (EMEA)",
   "remote": true,
   "seniority": "mid",
+  "employment_type": "full_time",
   "posted_at": "2026-09-20T00:00:00Z",
   "found_at": "2026-09-22T06:00:00Z",
   "description": "Python ve FastAPI ile mikroservisler geliştirecek...",
+  "posting_status": "open",
+  "last_verified_at": "2026-09-23T06:02:00Z",
+  "application_deadline": "2026-10-15",
+  "verification_reason": "Şirketin ilan listesinde yayında.",
   "score": 82,
   "score_reason": "Python/FastAPI deneyimi ve API projeleri güçlü eşleşiyor, Kubernetes eksik.",
   "status": "new",
   "package_status": "ready",
   "package_error": null,
-  "notes": ""
+  "notes": "",
+  "seen_at": null
 }

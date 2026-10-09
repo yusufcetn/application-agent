@@ -31,7 +31,13 @@ from app.db import (
     get_engine,
     init_db,
 )
-from app.llm.tailor import PackageDraft, TailoredEducation, TailoredExperience, TailoredItem
+from app.llm.tailor import (
+    PackageDraft,
+    TailoredEducation,
+    TailoredExperience,
+    TailoredProject,
+    TailoredSkills,
+)
 from app.render.cv import html_to_pdf, render_cv_html
 from app.schemas import Analysis, Answer, Package, Profile, Project
 from app.services.packages import cv_pdf_path
@@ -134,13 +140,14 @@ def main() -> None:
                 id=profile.experience[0].id, title="Backend Developer",
                 bullets=["Rewrote the order service with FastAPI, cutting response time by 40%.",
                          "Reduced a reporting query from 3 minutes to 20 seconds with PostgreSQL tuning."])],
-            projects=[TailoredItem(id=project.id, bullets=[
+            projects=[TailoredProject(id=project.id, bullets=[
                 "Built a crawler that collects job postings daily from ATS boards.",
                 "Developed LLM-based fit scoring and CV tailoring."])],
             education=[TailoredEducation(id=profile.education[0].id, degree="BSc",
                                          field="Computer Engineering")],
             languages=["Turkish (Native)", "English (C1)"],
-            skills=["Python", "FastAPI", "PostgreSQL", "Docker", "AWS"],
+            skills=TailoredSkills(languages=["Python"], frameworks=["FastAPI"],
+                                  tools=["PostgreSQL", "Docker", "AWS"]),
             score=82,
             score_reason="Python/FastAPI deneyimi ve API projeleri güçlü eşleşiyor, Kubernetes eksik.",
             matched_skills=["Python", "FastAPI", "PostgreSQL", "Docker"],

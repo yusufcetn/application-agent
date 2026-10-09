@@ -1,11 +1,12 @@
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, UploadFile
 from pydantic import ValidationError
 from sqlmodel import Session, select
 
 from app.db import ProjectRow, get_session
 from app.schemas import ImportIssue, Project, ProjectImportResult, ProjectIn, new_id
+from app.services.packages import rerender_cvs
 from app.text import fold
 
 router = APIRouter(tags=["projects"])
@@ -34,20 +35,27 @@ def create_project(body: ProjectIn, session: Session = Depends(get_session)) -> 
 
 @router.put("/projects/{project_id}")
 def update_project(
-    project_id: str, body: ProjectIn, session: Session = Depends(get_session)
+    project_id: str,
+    body: ProjectIn,
+    background: BackgroundTasks,
+    session: Session = Depends(get_session),
 ) -> Project:
     row = _get_row(session, project_id)
     project = Project(id=project_id, **body.model_dump())
     row.data = project.model_dump(mode="json")
     session.add(row)
     session.commit()
+    background.add_task(rerender_cvs)  # ready CVs that list this project
     return project
 
 
 @router.delete("/projects/{project_id}", status_code=204)
-def delete_project(project_id: str, session: Session = Depends(get_session)) -> Response:
+def delete_project(
+    project_id: str, background: BackgroundTasks, session: Session = Depends(get_session)
+) -> Response:
     session.delete(_get_row(session, project_id))
     session.commit()
+    background.add_task(rerender_cvs)
     return Response(status_code=204)
 
 
@@ -62,7 +70,7 @@ def _describe(error: ValidationError) -> str:
 
 @router.post("/projects/import")
 def import_projects(
-    files: list[UploadFile], session: Session = Depends(get_session)
+    files: list[UploadFile], background: BackgroundTasks, session: Session = Depends(get_session)
 ) -> ProjectImportResult:
     """Import projects from JSON files (one project or a list per file), in the same shape
     as GET /projects. A project whose id or name already exists is updated, not duplicated,
@@ -116,4 +124,6 @@ def import_projects(
                 by_name[fold(body.name)] = row
                 result.created.append(project)
     session.commit()
+    if result.updated:  # new projects aren't on any CV yet
+        background.add_task(rerender_cvs)
     return result

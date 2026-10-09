@@ -16,6 +16,22 @@ test('real client uses contract paths, methods and encoded ids', async () => {
   assert.equal(seen[0].init.method, 'PATCH')
   assert.equal(JSON.parse(seen[0].init.body).status, 'applied')
   assert.equal(getCvUrl('job/one'), '/api/jobs/job%2Fone/cv.pdf')
+  assert.equal(getCvUrl('job/one', '2026-09-27T16:30:00Z'), '/api/jobs/job%2Fone/cv.pdf?v=2026-09-27T16%3A30%3A00Z')
+})
+
+test('settings assistant sends the expected paths and payloads', async () => {
+  const seen = []
+  globalThis.fetch = async (url, init) => {
+    seen.push({ url, init })
+    return new Response(JSON.stringify(url.endsWith('suggest-roles') ? { target_roles: ['Platform Engineer'] } : { companies: [], warnings: [] }), { status: 200 })
+  }
+  assert.deepEqual(await api.suggestRoles('Python platform services'), { target_roles: ['Platform Engineer'] })
+  await api.discoverCompanies({ description: 'climate tech', target_roles: ['Platform Engineer'], locations: ['Berlin'], remote_only: true })
+  assert.equal(seen[0].url, '/api/settings/suggest-roles')
+  assert.equal(seen[0].init.method, 'POST')
+  assert.deepEqual(JSON.parse(seen[0].init.body), { description: 'Python platform services' })
+  assert.equal(seen[1].url, '/api/settings/discover-companies')
+  assert.deepEqual(JSON.parse(seen[1].init.body), { description: 'climate tech', target_roles: ['Platform Engineer'], locations: ['Berlin'], remote_only: true })
 })
 
 test('real client returns backend detail text on errors', async () => {
@@ -62,7 +78,9 @@ test('auth endpoints, search-run query, cookies and multipart headers follow con
   await api.login('secret token')
   await api.logout()
   await api.deleteProject('a/b')
-  assert.deepEqual(seen.slice(0, 3).map(item => item.url), ['/api/auth/login', '/api/auth/logout', '/api/projects/a%2Fb'])
+  await api.deleteJob('job/two')
+  assert.deepEqual(seen.slice(0, 4).map(item => item.url), ['/api/auth/login', '/api/auth/logout', '/api/projects/a%2Fb', '/api/jobs/job%2Ftwo'])
+  assert.equal(seen[3].init.method, 'DELETE')
   assert.equal(JSON.parse(seen[0].init.body).token, 'secret token')
   assert.equal(seen[0].init.headers.has('Authorization'), false)
   assert.equal(seen[0].init.credentials, 'same-origin')
@@ -72,6 +90,10 @@ test('auth endpoints, search-run query, cookies and multipart headers follow con
   globalThis.fetch = async (_url, init) => { seen.push({ url: '', init }); return new Response('{}', { status: 200 }) }
   await api.importProfile(new File(['x'], 'profile.pdf'))
   assert.equal(seen.at(-1).init.headers.has('Content-Type'), false)
+  globalThis.fetch = async (url, init) => { seen.push({ url, init }); return new Response(JSON.stringify({ sent_to: 'me@x.com' }), { status: 200 }) }
+  assert.equal((await api.sendRunReport('run/1')).sent_to, 'me@x.com')
+  assert.equal(seen.at(-1).url, '/api/search/runs/run%2F1/report')
+  assert.equal(seen.at(-1).init.method, 'POST')
 })
 
 test('project import sends every file as multipart "files"', async () => {

@@ -1,11 +1,12 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile
 from sqlmodel import Session
 
 from app.db import ProfileRow, get_session
 from app.llm.profile_import import UnsupportedFileError, extract_profile
 from app.schemas import Profile
+from app.services.packages import rerender_cvs
 
 router = APIRouter(tags=["profile"])
 
@@ -19,7 +20,9 @@ def get_profile(session: Session = Depends(get_session)) -> Profile:
 
 
 @router.put("/profile")
-def put_profile(profile: Profile, session: Session = Depends(get_session)) -> Profile:
+def put_profile(
+    profile: Profile, background: BackgroundTasks, session: Session = Depends(get_session)
+) -> Profile:
     profile.updated_at = datetime.now(UTC)
     data = profile.model_dump(mode="json")
     row = session.get(ProfileRow, 1)
@@ -29,6 +32,7 @@ def put_profile(profile: Profile, session: Session = Depends(get_session)) -> Pr
         row = ProfileRow(id=1, data=data)
     session.add(row)
     session.commit()
+    background.add_task(rerender_cvs)  # contact details and links on the ready CVs
     return profile
 
 

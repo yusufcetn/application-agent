@@ -1,10 +1,11 @@
-"""Run structured LLM calls through the Claude Code or Codex CLI.
+"""Run structured LLM calls through the Antigravity, Claude Code or Codex CLI.
 
-Both CLIs use the subscription the user is logged into, so no API key is needed.
+Each CLI uses the account the user is logged into, so no API key is needed.
 """
 
 import html
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -18,6 +19,8 @@ from pydantic import BaseModel
 from app.config import get_settings
 
 T = TypeVar("T", bound=BaseModel)
+
+ANTIGRAVITY_DEFAULT_MODEL = "gemini-3.8-flash-medium"
 
 # CLI subscriptions have usage limits; don't let a batch of packages fire all at once.
 _slots = threading.BoundedSemaphore(get_settings().llm_max_concurrency)
@@ -107,19 +110,21 @@ def _unwrap_npm_shim(shim: Path) -> list[str] | None:
     return [node_path, str(target)] if node_path else None
 
 
-def _resolve_bin(name: str) -> list[str]:
+def _resolve_bin(name: str, fallback: Path | None = None) -> list[str]:
     path = shutil.which(name)
+    if not path and fallback and fallback.exists():
+        path = str(fallback)
     if not path:
         raise LLMNotConfiguredError(
             f"'{name}' komutu bulunamadı. CLI'ı kurun veya .env içinde yolunu belirtin "
-            "(CLAUDE_BIN / CODEX_BIN)."
+            "(ANTIGRAVITY_BIN / CLAUDE_BIN / CODEX_BIN)."
         )
     if Path(path).suffix.lower() in (".cmd", ".bat"):
         return _unwrap_npm_shim(Path(path)) or [path]
     return [path]
 
 
-def _run(cmd: list[str], stdin: str, cwd: str) -> subprocess.CompletedProcess:
+def _run(cmd: list[str], stdin: str, cwd: str, timeout: int | None = None) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(
             cmd,
@@ -129,13 +134,13 @@ def _run(cmd: list[str], stdin: str, cwd: str) -> subprocess.CompletedProcess:
             encoding="utf-8",  # Windows would otherwise use the locale code page (cp1254)
             errors="replace",
             cwd=cwd,
-            timeout=get_settings().llm_timeout_seconds,
+            timeout=timeout or get_settings().llm_timeout_seconds,
         )
     except subprocess.TimeoutExpired as e:
         raise LLMError("LLM yanıtı zaman aşımına uğradı.") from e
 
 
-def _run_claude(system: str, prompt: str, schema: dict, workdir: str) -> dict:
+def _run_claude(system: str, prompt: str, schema: dict, workdir: str, web: bool, timeout: int | None, model: str | None) -> dict:
     settings = get_settings()
     cmd = [
         *_resolve_bin(settings.claude_bin),
@@ -143,12 +148,15 @@ def _run_claude(system: str, prompt: str, schema: dict, workdir: str) -> dict:
         "--output-format", "json",
         "--json-schema", json.dumps(schema),
         "--system-prompt", system,
-        "--tools", "",
         "--no-session-persistence",
     ]
-    if settings.llm_model:
-        cmd += ["--model", settings.llm_model]
-    proc = _run(cmd, prompt, workdir)
+    if web:
+        cmd += ["--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch WebFetch"]
+    else:
+        cmd += ["--tools", ""]
+    if model or settings.llm_model:
+        cmd += ["--model", model or settings.llm_model]
+    proc = _run(cmd, prompt, workdir, timeout)
     try:
         out = json.loads(proc.stdout)
     except json.JSONDecodeError as e:
@@ -160,13 +168,14 @@ def _run_claude(system: str, prompt: str, schema: dict, workdir: str) -> dict:
     return _parse_json_text(out.get("result", ""))
 
 
-def _run_codex(system: str, prompt: str, schema: dict, workdir: str) -> dict:
+def _run_codex(system: str, prompt: str, schema: dict, workdir: str, web: bool, timeout: int | None, model: str | None) -> dict:
     settings = get_settings()
     schema_file = Path(workdir) / "schema.json"
     out_file = Path(workdir) / "out.json"
     schema_file.write_text(json.dumps(schema), encoding="utf-8")
     cmd = [
         *_resolve_bin(settings.codex_bin),
+        *(["--search"] if web else []),  # a global flag, so it goes before "exec"
         "exec",
         "--output-schema", str(schema_file),
         "--output-last-message", str(out_file),
@@ -175,21 +184,116 @@ def _run_codex(system: str, prompt: str, schema: dict, workdir: str) -> dict:
         "--ephemeral",
         "--color", "never",
     ]
-    if settings.llm_model:
-        cmd += ["--model", settings.llm_model]
+    if model or settings.llm_model:
+        cmd += ["--model", model or settings.llm_model]
     cmd.append("-")  # read the prompt from stdin
-    proc = _run(cmd, f"{system}\n\n{prompt}", workdir)
+    proc = _run(cmd, f"{system}\n\n{prompt}", workdir, timeout)
     if proc.returncode != 0 or not out_file.exists():
         raise LLMError(f"Codex CLI hatası: {proc.stderr[-500:]}")
     return _parse_json_text(out_file.read_text(encoding="utf-8"))
 
 
+def _antigravity_install_path() -> Path | None:
+    # The Windows installer adds this folder to PATH, but only for terminals opened afterwards.
+    local = os.environ.get("LOCALAPPDATA")
+    return Path(local) / "agy" / "bin" / "agy.exe" if os.name == "nt" and local else None
+
+
+ANTIGRAVITY_SETTINGS = "~/.gemini/antigravity-cli/settings.json"
+_NO_TOOLS = "Answer directly from the text above. Do not use any tools."
+# settings.json only allows these; any other tool (e.g. a terminal command) is denied in
+# headless mode and ends the turn without an answer.
+_TOOL_DENIED = (
+    "Your previous attempt tried a tool that isn't available here, so it ended without an "
+    "answer. Answer now with the JSON only."
+)
+_WEB_TOOLS_ONLY = (
+    "Only use the web search, URL reading and file viewing tools. Never run terminal commands "
+    "and never create or edit files."
+)
+# Gemini sometimes writes the answer as prose and then returns an empty JSON object.
+_ANSWER_IN_JSON = (
+    "Put the whole answer in the JSON output. Text written outside it is thrown away, so "
+    "never list the answer as prose and then return empty fields."
+)
+
+
+def _antigravity_result(stdout: str) -> dict | None:
+    result = None
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and event.get("event") == "result":
+            result = event.get("result") or {}
+    return result
+
+
+def _run_antigravity(system: str, prompt: str, schema: dict, workdir: str, web: bool, timeout: int | None, model: str | None) -> dict:
+    settings = get_settings()
+    schema_file = Path(workdir) / "schema.json"
+    schema_file.write_text(json.dumps(schema), encoding="utf-8")
+    # Print mode only takes the prompt as an argument, which Windows caps at ~32K characters;
+    # stream-json input reads it from stdin instead. There is no system prompt flag.
+    cmd = [
+        *_resolve_bin(settings.antigravity_bin, _antigravity_install_path()),
+        "--input-format", "stream-json",
+        "--output-format", "stream-json",
+        "--json-schema", str(schema_file),
+        "--model", model or settings.llm_model or ANTIGRAVITY_DEFAULT_MODEL,
+        "--disable-slash-commands",
+    ]
+    content = f"{system}\n\n{prompt}\n\n{_WEB_TOOLS_ONLY if web else _NO_TOOLS} {_ANSWER_IN_JSON}"
+    message = json.dumps({"event": "user", "message": {"content": content}}, ensure_ascii=False)
+    for attempt in range(2):
+        proc = _run(cmd, message + "\n", workdir, timeout)
+        result = _antigravity_result(proc.stdout)
+        if result is None:
+            raise LLMError(f"Antigravity CLI hatası: {(proc.stderr or proc.stdout)[-500:]}")
+        # A retried model error can still end with an answer.
+        if result.get("structured_output") is not None:
+            return result["structured_output"]
+        response = result.get("response") or ""
+        if result.get("status") == "SUCCESS" and response.strip():
+            return _parse_json_text(response)
+        # A denied tool ends the turn without an answer; stderr says which one.
+        error = result.get("error") or proc.stderr.strip()[-500:] or "boş yanıt"
+        if attempt == 0 and ("UNAVAILABLE" in error or "503" in error):
+            continue  # the model was briefly out of capacity
+        if attempt == 0 and "auto-denied" in proc.stderr:
+            # Now and then the model reaches for a tool it can't have (e.g. a terminal command
+            # to download the page) and the turn ends without an answer; ask once more.
+            retry = f"{content}\n\n{_TOOL_DENIED}"
+            message = json.dumps({"event": "user", "message": {"content": retry}}, ensure_ascii=False)
+            continue
+        if any(f'"{tool}" permission' in proc.stderr for tool in ("read_url", "search_web")):
+            error = (
+                "Antigravity web araçları için izin gerekli: "
+                f'{ANTIGRAVITY_SETTINGS} dosyasına {{"permissions": {{"allow": '
+                '["read_url(*)", "search_web(*)"]}} ekle.'
+            )
+        raise LLMError(f"Antigravity CLI hatası: {error}")
+    raise AssertionError("unreachable")
+
+
+_RUNNERS = {"antigravity": _run_antigravity, "claude": _run_claude, "codex": _run_codex}
+
+
 def run_structured(
-    system: str, prompt: str, output: type[T], drop: set[str] = frozenset()
+    system: str,
+    prompt: str,
+    output: type[T],
+    drop: set[str] = frozenset(),
+    web: bool = False,
+    timeout: int | None = None,
+    model: str | None = None,
 ) -> T:
+    """`web` lets the model search the web and open pages; everything else runs tool-free.
+    `model` overrides LLM_MODEL for this call."""
     schema = strict_schema(output, drop)
-    runner = _run_claude if get_settings().llm_provider == "claude" else _run_codex
+    runner = _RUNNERS[get_settings().llm_provider]
     # Run in an empty temp dir so the CLI doesn't pick up project files or settings.
     with _slots, tempfile.TemporaryDirectory() as workdir:
-        data = runner(system, prompt, schema, workdir)
+        data = runner(system, prompt, schema, workdir, web, timeout, model)
     return output.model_validate(_clean(data))

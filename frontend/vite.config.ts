@@ -10,7 +10,7 @@ export default defineConfig({
     manifest: {
       name: 'Apply Agent', short_name: 'Apply', description: 'Başvuru çalışma alanın',
       display: 'standalone', start_url: '/', scope: '/', lang: 'tr',
-      theme_color: '#864b3e', background_color: '#f8f5ef',
+      theme_color: '#1d4ed8', background_color: '#f3f6fb',
       icons: [
         { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
         { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
